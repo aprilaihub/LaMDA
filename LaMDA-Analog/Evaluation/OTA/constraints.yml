@@ -1,0 +1,50 @@
+design_name: ota_5t
+
+sizing:
+  # Input pair
+  Wdiff_um:
+    min: 2
+    max: 12
+  Ldiff_um:
+    min: 1
+    max: 2
+
+  # PMOS diode-connected loads
+  Wload_um:
+    min: 2
+    max: 20
+  Lload_um:
+    min: 1
+    max: 3
+
+  # Tail device
+  Wtail_um:
+    min: 2
+    max: 30
+  Ltail_um:
+    min: 1
+    max: 3
+
+  # Bias
+  VBIAS_V:
+    min: 0.6
+    max: 2.5
+
+  # Output load cap (this is a PARAM in the netlist, not a sweep)
+  CL_pF:
+    min: 0.5
+    max: 5.0
+
+# Strict relations / structural guidance only (NO objectives here)
+relations:
+  - "Use only integer micron values for widths and lengths (2u, 3u, 4u...)."
+  - "Choose Lload_um >= Ldiff_um to favor gain."
+  - "Choose Wtail_um between 1x and 4x Wdiff_um."
+  - "Choose Wload_um between 1x and 3x Wdiff_um."
+  - "Keep sizes physically reasonable for 180 nm (avoid extreme widths)."
+
+# Bias sweep policy (the sweep script uses this range)
+sweep:
+  VBIAS_min_V: 0.6
+  VBIAS_max_V: 2.5
+  VBIAS_npoints: 15

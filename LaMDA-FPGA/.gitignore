@@ -1,0 +1,10 @@
+.Xil
+venv
+__pycache__/
+Evaluation/ResBench/Analysis/experiments/
+Evaluation/ResBench/Analysis/__pycache__
+clockInfo.txt
+Tests/Outputs/
+.env
+
+

@@ -1,0 +1,109 @@
+================================================================================
+HOW TO GET AVAILABLE LIBRARIES AND COMPONENTS IN ADS
+================================================================================
+
+This file explains how to extract and inspect the available component libraries
+and their components from a Keysight ADS installation.
+
+--------------------------------------------------------------------------------
+LIBRARY FILES IN THIS PROJECT
+--------------------------------------------------------------------------------
+
+The libraries/ folder contains pre-exported .txt files for each ADS library,
+generated using the ADS Python API described in Section 1. Each file follows
+the naming convention:
+
+    <library_name>.txt
+
+and contains the library name followed by its components in the format:
+
+    Library: <library_name>
+      - Component: <component_name>
+      - Component: <component_name>
+      ...
+
+These files are loaded by LaMDA-RF at runtime to provide the LLM with context
+about which components are available for netlist generation.
+
+To regenerate these files, follow the steps in the HOW TO GET THE LIBRARIES
+AND COMPONENTS section below.
+
+--------------------------------------------------------------------------------
+HOW TO GET LIBRARIES AND COMPONENTS
+--------------------------------------------------------------------------------
+
+The following script uses the Keysight ADS Python API (keysight.ads.de) to
+create a temporary ADS workspace, attach all available shared libraries, and
+export each library's component (cell) list to a separate .txt file.
+
+Save the code below as export_libraries.py, then run it from within the ADS
+Python venv (see README for setup):
+    Windows:  %HOME%\ads_venv\Scripts\python.exe export_libraries.py
+    Linux:    $HOME/ads_venv/bin/python3 export_libraries.py
+
+    Note (Windows): %HOME% is not set by default. Set it first:
+        set HOME=%USERPROFILE%
+
+Alternatively, paste the code below directly into the ADS GUI Python Console:
+    Tools > Python Console
+
+    import os
+    import shutil
+    import keysight.ads.de as de
+    from pathlib import Path
+
+    home_dir = os.environ["HOME"]
+    workspace_name = "library_workspace"
+    workspace_path = os.path.join(home_dir, workspace_name)
+    output_dir = os.path.join(workspace_path, "data")
+    libraries_dir = os.path.join(output_dir, "libraries")
+
+    # Close any currently open workspace to avoid conflicts
+    if de.workspace_is_open():
+        de.close_workspace()
+
+    # Remove stale workspace if it exists
+    if Path(workspace_path).exists():
+        shutil.rmtree(workspace_path)
+
+    # Create and open a fresh workspace
+    workspace = de.create_workspace(workspace_path)
+    workspace.open()
+
+    # Add a shared library — this triggers ADS to load all installed libraries
+    lib_name = f"{workspace_name}_lib"
+    lib_path = os.path.join(workspace.path, lib_name)
+    library = de.create_new_library(lib_name, lib_path)
+    workspace.add_library(lib_name, lib_path, de.LibraryMode.SHARED)
+
+    os.makedirs(libraries_dir, exist_ok=True)
+
+    # Iterate over all 22 ADS libraries (indices 0-21) and export their cells
+    for x in range(0, 22):
+        lib = workspace.libraries[x]
+        lib_file_name = f"{lib.name}.txt"
+        lib_file_path = os.path.join(libraries_dir, lib_file_name)
+        with open(lib_file_path, "w") as f:
+            f.write(f"Library: {lib.name}\n")
+            # lib.cells has a variable number of entries per library
+            for y in range(len(lib.cells)):
+                cell = lib.cells[y]
+                f.write(f"  - Component: {cell.name}\n")
+        print(f"Saved {lib.name} -> {lib_file_path}")
+
+--------------------------------------------------------------------------------
+NOTES
+--------------------------------------------------------------------------------
+
+- The script saves all library .txt files to:
+    Windows:  %USERPROFILE%\library_workspace\data\libraries\
+    Linux:    $HOME/library_workspace/data/libraries/
+  After running, move the contents of that folder to:
+    Data\ADS-Book\libraries\
+  in the project root so LaMDA-RF can load them at runtime.
+
+- Library availability depends on your ADS license and installed options.
+- Library names and component APIs may differ slightly between ADS versions.
+- Always regenerate library files when upgrading ADS to avoid stale data.
+
+================================================================================

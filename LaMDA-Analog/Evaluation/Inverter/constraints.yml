@@ -1,0 +1,25 @@
+design: inverter
+
+hard_rules:
+  supply_v: 5.0
+  default_L_text: "0.6u"
+  enforce_nodes: { vdd: VDD, gnd: 0, in: IN, out: OUT }
+
+  analyses:
+    dc:        { start: "0", stop: "5", step: "0.01" }   # DC transfer for noise margin
+    transient: { stop: "50n" }
+
+sizing:
+  prefer_wp_over_wn_ratio: [2.0, 3.0]
+
+bounds:
+  wn_um: { min: 1.0, max: 10.0 }
+  wp_um: { min: 1.0, max: 20.0 }
+
+llm_guidance:
+  goals:
+    - "Emit Spectre syntax only (simulator lang=spectre)."
+    - "Use DC + transient only (no AC sources, no AC analysis)."
+  must_include:
+    - "saveOptions options save=allpub"
+

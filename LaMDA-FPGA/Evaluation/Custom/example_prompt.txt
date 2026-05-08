@@ -1,0 +1,13 @@
+Design a 4-bit ripple carry adder with the following specifications:
+
+Module Name: ripple_adder_4bit
+Inputs:
+  - a[3:0]: First 4-bit operand
+  - b[3:0]: Second 4-bit operand
+  - cin: Carry input
+Outputs:
+  - sum[3:0]: 4-bit sum output
+  - cout: Carry output
+
+The design should cascade four full adders to compute a+b+cin.
+Clock constraint: 100 MHz (10 ns period)

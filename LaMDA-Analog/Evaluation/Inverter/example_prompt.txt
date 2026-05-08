@@ -1,0 +1,6 @@
+
+Design a static CMOS inverter in Cadence Spectre at VDD = 5 V.
+
+The main goal is to reduce power consumption while keeping reasonable switching speed.
+Sweep the sizing ratio Wp/Wn between 2.0 and 3.0 and generate a Spectre-compatible netlist that follows the system instructions and can be used to compare delay and power across the sizing options.
+

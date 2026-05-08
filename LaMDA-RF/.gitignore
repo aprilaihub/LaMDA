@@ -1,0 +1,25 @@
+# ADS book data
+Data/ADS-Book/libraries
+Data/ADS-Book/Netlist.txt
+
+# Environment
+.env
+venv/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+run_batch.ps1
+
+# Outputs
+NetlistFiles/
+LLM_Responses/
+LLM_Feedback/
+Outputs/
+ADS_Workspaces/
+csv_process.py
+
+# ADS generated binaries
+de_sim.cfg
+hpeesofsim.cfg

@@ -1,0 +1,10 @@
+git add tech_config.example.yml# tech_config.example.yml
+# Copy to tech_config.yml locally and fill with YOUR local Spectre/PDK settings.
+# Do NOT commit tech_config.yml.
+
+pdk:
+  include_files: []
+  model_files: []
+devices:
+  nmos: "nmos"
+  pmos: "pmos"

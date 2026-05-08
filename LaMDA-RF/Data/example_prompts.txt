@@ -1,0 +1,7 @@
+Give me a netlist of a microstrip patch antenna on FR-4 operating at 2.4GHz with S11 below -10dB.
+
+Provide a netlist of a microstrip low-pass filter on an FR-4 substrate and such that S11 below −10 dB and S21 is −3 dB at 2.4 GHz, and S21 below −40 dB for frequencies above 3.5 GHz.
+
+Provide a netlist of a 50 Ω microstrip high-pass filter on an FR-4 substrate and such that S21 is −3 dB at 2.4 GHz, S11 below −10 dB at 2.4 GHz, and S21 below −40 dB for frequencies above 3.5 GHz, assuming a 50 Ω source and load.
+
+Provide a netlist of a microstrip directional coupler on FR-4 such that at 2.4 GHz S21 is above −1 dB, S31 is −10 dB, S41 is below −20 dB and S11 below −10 dB.

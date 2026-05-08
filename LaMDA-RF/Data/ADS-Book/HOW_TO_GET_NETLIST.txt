@@ -1,0 +1,191 @@
+================================================================================
+HOW TO GET A NETLIST FROM AN ADS SCHEMATIC
+================================================================================
+
+This file explains how to export an ADS schematic as a netlist using the
+Keysight ADS Python API. The Netlist.txt file in this folder is generated
+using this process.
+
+--------------------------------------------------------------------------------
+NETLIST FILE IN THIS PROJECT
+--------------------------------------------------------------------------------
+
+The Netlist.txt file contains a reference netlist exported from an ADS
+schematic. It is used by LaMDA-RF as a reference example for the LLM when
+generating new netlists.
+
+To regenerate it, follow the steps in the HOW TO EXPORT A NETLIST section
+below.
+
+--------------------------------------------------------------------------------
+HOW TO EXPORT A NETLIST
+--------------------------------------------------------------------------------
+
+The following script uses the Keysight ADS Python API (keysight.ads.de) to
+create an ADS workspace, build a schematic programmatically, and export its
+netlist to a .txt file.
+
+Save the code below as export_netlist.py, then run it from within the ADS
+Python venv (see README for setup):
+    Windows:  %HOME%\ads_venv\Scripts\python.exe export_netlist.py
+    Linux:    $HOME/ads_venv/bin/python3 export_netlist.py
+
+    Note (Windows): %HOME% is not set by default. Set it first:
+        set HOME=%USERPROFILE%
+
+Alternatively, paste the code below directly into the ADS GUI Python Console:
+    Tools > Python Console
+
+    from keysight.ads import de
+    from keysight.ads.de import PointF
+    from keysight.ads.de import db_uu as db
+    from keysight.ads.de.db import Transaction
+    import os
+    import shutil
+    import keysight.ads.de as de
+    from pathlib import Path
+
+    home_dir = os.environ["HOME"]
+    workspace_name = "netlist_workspace_test"
+    workspace_path = os.path.join(home_dir, workspace_name)
+    output_dir = os.path.join(workspace_path, "data")
+    netlist_dir = os.path.join(output_dir, "netlists")
+
+    # Close any currently open workspace to avoid conflicts
+    if de.workspace_is_open():
+        de.close_workspace()
+
+    # Remove stale workspace if it exists
+    if Path(workspace_path).exists():
+        shutil.rmtree(workspace_path)
+
+    # Create and open a fresh workspace
+    workspace = de.create_workspace(workspace_path)
+    workspace.open()
+
+    # Add a shared library — this triggers ADS to load all installed libraries
+    lib_name = f"{workspace_name}_lib"
+    lib_path = os.path.join(workspace.path, lib_name)
+    library = de.create_new_library(lib_name, lib_path)
+    workspace.add_library(lib_name, lib_path, de.LibraryMode.SHARED)
+
+    assert de.version() >= 630
+
+    # Create and open a schematic design
+    design = db.create_schematic(f"{lib_name}:cell:schematic")
+    design = db.open_design(f"{lib_name}:cell:schematic")
+
+    with Transaction(design) as transaction:
+        # Add wires (interconnects between components)
+        points = [PointF(x=3.375, y=-3.125), PointF(x=3.375, y=-3.625), PointF(x=6.25, y=-3.625)]
+        shape = design.add_wire(points)
+
+        shape = design.add_wire([PointF(x=2.75, y=-3.125), PointF(x=3.375, y=-3.125)])
+        shape = design.add_wire([PointF(x=9.625, y=-3.125), PointF(x=9.875, y=-3.125)])
+
+        points = [PointF(x=6.25, y=-3.625), PointF(x=9.625, y=-3.625), PointF(x=9.625, y=-3.125)]
+        shape = design.add_wire(points)
+
+        shape = design.add_wire([PointF(x=6.25, y=-3.125), PointF(x=6.25, y=-3.625)])
+        shape = design.add_wire([PointF(x=8.625, y=-0.5), PointF(x=8.625, y=-0.875)])
+        shape = design.add_wire([PointF(x=4.0, y=-0.5), PointF(x=4.0, y=-1.0)])
+        shape = design.add_wire([PointF(x=5.0, y=-0.5), PointF(x=5.0, y=-1.0)])
+        shape = design.add_wire([PointF(x=7.625, y=-0.5), PointF(x=7.625, y=-1.0)])
+        shape = design.add_wire([PointF(x=5.0, y=-1.0), PointF(x=6.25, y=-1.0)])
+        shape = design.add_wire([PointF(x=7.625, y=-1.0), PointF(x=6.25, y=-1.0)])
+        shape = design.add_wire([PointF(x=6.25, y=-1.0), PointF(x=6.25, y=-2.125)])
+        shape = design.add_wire([PointF(x=8.625, y=-0.875), PointF(x=8.625, y=-1.625)])
+        shape = design.add_wire([PointF(x=4.0, y=-1.0), PointF(x=4.0, y=-1.625)])
+        shape = design.add_wire([PointF(x=5.0, y=-1.0), PointF(x=5.0, y=-1.625)])
+
+        points = [PointF(x=3.375, y=-3.125), PointF(x=3.375, y=-1.0), PointF(x=4.0, y=-1.0)]
+        shape = design.add_wire(points)
+
+        shape = design.add_wire([PointF(x=7.625, y=-1.0), PointF(x=7.625, y=-1.625)])
+
+        points = [PointF(x=8.625, y=-0.875), PointF(x=9.25, y=-0.875), PointF(x=9.25, y=-3.125), PointF(x=9.625, y=-3.125)]
+        shape = design.add_wire(points)
+
+        points = [PointF(x=1.75, y=-3.125), PointF(x=0.375, y=-3.125), PointF(x=0.375, y=-3.5)]
+        shape = design.add_wire(points)
+
+        points = [PointF(x=10.875, y=-3.125), PointF(x=12.25, y=-3.125), PointF(x=12.25, y=-3.5)]
+        shape = design.add_wire(points)
+
+        # Add component instances
+        inst = design.add_instance("ads_rflib:C", name="C1", origin=(1.75, -3.125))
+        inst.parameters["C"].value = "942.018976 fF"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_rflib:C", name="C2", origin=(4.0, -0.5))
+        inst.parameters["C"].value = "635.294588 fF"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_rflib:C", name="C3", origin=(6.25, -2.125), angle=-90.0)
+        inst.parameters["C"].value = "1.043298 pF"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_rflib:C", name="C4", origin=(7.625, -0.5))
+        inst.parameters["C"].value = "2.853549 pF"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_rflib:C", name="C5", origin=(9.875, -3.125))
+        inst.parameters["C"].value = "431.377289 fF"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_rflib:GROUND", name="G1", origin=(6.25, -3.625), angle=-90.0, ads_annot=False)
+
+        inst = design.add_instance("ads_rflib:L", name="L1", origin=(4.0, -1.625))
+        inst.parameters["L"].value = "1.445193 nH"
+        inst.parameters["R"].value = "1e-12 Ohm"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_rflib:L", name="L2", origin=(7.625, -1.625))
+        inst.parameters["L"].value = "495.380199 pH"
+        inst.parameters["R"].value = "1e-12 Ohm"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_simulation:TermG", name="TermG1", origin=(0.375, -3.5), angle=-90.0)
+        inst.parameters["Num"].value = "1"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_simulation:TermG", name="TermG2", origin=(12.25, -3.5), angle=-90.0)
+        inst.parameters["Num"].value = "2"
+        inst.update_item_annotation()
+
+        inst = design.add_instance("ads_simulation:S_Param", name="SP1", origin=(14.375, -1.625))
+        inst.parameters["Stop"].value = "7 GHz"
+        inst.parameters["Step"].value = "1.0 MHz"
+        inst.parameters["Sort"].value = "LINEAR START STEP "
+        inst.parameters["Freq"].value = " "
+        inst.update_item_annotation()
+
+        transaction.commit()
+
+    os.makedirs(netlist_dir, exist_ok=True)
+
+    # Save the design and export the netlist
+    design.save_design()
+    netlist = design.generate_netlist()
+
+    netlist_path = os.path.join(netlist_dir, "Netlist.txt")
+    with open(netlist_path, "w") as f:
+        f.write(netlist)
+    print(f"Netlist saved -> {netlist_path}")
+
+--------------------------------------------------------------------------------
+NOTES
+--------------------------------------------------------------------------------
+
+- The script saves the netlist to:
+    Windows:  %USERPROFILE%\netlist_workspace_test\data\netlists\Netlist.txt
+    Linux:    $HOME/netlist_workspace_test/data/netlists/Netlist.txt
+  After running, copy Netlist.txt to:
+    Data\ADS-Book\Netlist.txt
+  in the project root so LaMDA-RF can use it as a reference example.
+
+- The schematic in this script is a 5-element LC bandpass filter with
+  S-parameter simulation from 0 to 7 GHz. Modify the instances and wires
+  to export a netlist for a different design.
+
+================================================================================

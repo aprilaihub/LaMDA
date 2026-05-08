@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual environments
+venv/
+.venv/
+
+# Local environment and secrets
+.env
+.env.*
+
+# Local technology binding config (keep the example committed)
+config/tech_config.yml
+
+# Generated run and sweep artifacts (kept inside per-design output/ folders)
+Evaluation/Inverter/output/
+Evaluation/OTA/output/
+
+# Notebook and editor artifacts
+.ipynb_checkpoints/
+.vscode/
+
+# OS files
+.DS_Store

@@ -1,0 +1,1 @@
+Provide a netlist of a microstrip low-pass filter on a Rogers RO4350B substrate such that S11 is below −15 dB and S21 is −3 dB at 3.5 GHz, and S21 is below −40 dB for frequencies above 5 GHz.
