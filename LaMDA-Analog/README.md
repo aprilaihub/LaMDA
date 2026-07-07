@@ -18,7 +18,7 @@ LaMDA-Analog addresses the challenge of analog circuit design automation by comb
 6. **Parses** PSF results and writes a summary JSON with extracted metrics
 7. **Optionally sweeps** device parameters using LLM-proposed sizing points and collects a sweep CSV
 
-The current implementation targets two topologies: **static CMOS inverter** and **5-transistor operational transconductance amplifier (OTA)**.
+The current implementation targets two topologies: **CMOS inverter** and **5-transistor operational transconductance amplifier (OTA)**.
 
 ---
 
