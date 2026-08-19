@@ -16,15 +16,55 @@ class LLMClient:
         self.model_name = model_name
         self.client = self._setup_client()
 
+    def _is_openai_family_model(self):
+        """Return True for OpenAI-family models that should use OPENAI_API_KEY."""
+        model_lower = self.model_name.lower()
+        return (
+            model_lower.startswith("gpt-")
+            or model_lower.startswith("chatgpt-")
+            or model_lower.startswith("o3")
+            or model_lower.startswith("o4")
+            or model_lower.startswith("o-")
+        )
+
+    def _resolve_provider(self):
+        """Resolve provider from explicit override or model naming policy."""
+        provider_override = os.getenv("LLM_PROVIDER", "").strip().lower()
+        if provider_override:
+            if provider_override == "openrouter":
+                return "openrouter"
+            if provider_override in {"openai", "default", "custom"}:
+                return "openai"
+            raise ValueError(
+                "Unsupported LLM_PROVIDER. Use one of: openai, openrouter, default, custom."
+            )
+
+        model_lower = self.model_name.lower()
+        if model_lower.startswith("o1"):
+            return "openrouter"
+        if self._is_openai_family_model():
+            return "openai"
+        return "openrouter"
+
     def _setup_client(self):
         """Initialize the OpenAI-compatible client from environment variables."""
-        api_key = os.getenv("LLM_API_KEY")
-        if api_key is None:
-            raise ValueError(
-                "LLM_API_KEY environment variable not found.\n"
-                "Please set it in your .env file."
-            )
-        base_url = os.getenv("LLM_BASE_URL", "https://elm.edina.ac.uk/api/v1")
+        provider = self._resolve_provider()
+
+        if provider == "openrouter":
+            api_key = os.getenv("OPENROUTER_API_KEY")
+            if api_key is None:
+                raise ValueError(
+                    "OPENROUTER_API_KEY not found. Please set it in your .env file."
+                )
+            base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
+        else:
+            api_key = os.getenv("OPENAI_API_KEY")
+            if api_key is None:
+                raise ValueError(
+                    "OPENAI_API_KEY not found. Please set it in your .env file."
+                )
+            base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+
         return OpenAI(base_url=base_url, api_key=api_key)
 
     def generate_content(self, messages, temperature=1.0, top_p=1.0):

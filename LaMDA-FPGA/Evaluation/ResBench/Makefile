@@ -13,13 +13,15 @@ ID_START ?= 1
 ID_END ?= 56
 ITER ?= 1
 MODEL ?= gpt-4o
+DATASET_VARIANT ?= constrained
+PREPROCESS_SEED ?=
 
 # CSV processing parameters
 JSON_FILE ?= exp_results.json
 INPUT_CSV ?= full_results.csv
 OUTPUT_CSV ?= summary_results.csv
 
-.PHONY: preprocess_dataset run_llm_eda_resbench clean_experiments_log json_to_csv compress_csv generate_csv reorganize_results help
+.PHONY: preprocess_dataset preprocess_dataset_noconstraints run_llm_eda_resbench clean_experiments_log json_to_csv compress_csv generate_csv reorganize_results help
 
 # Preprocess the ResBench dataset with custom constraints
 # Usage: make preprocess_dataset
@@ -33,8 +35,29 @@ preprocess_dataset:
 			--delay_max_ns 10.0 \
 			--freq_min_mhz 100.0 \
 			--freq_max_mhz 1000.0 \
+			$(if $(PREPROCESS_SEED),--seed $(PREPROCESS_SEED),) \
+			--include_constraints_in_problem \
+			--output_json_name problems_preprocessed.json \
 	)
 	@echo "✅ Dataset preprocessing completed!"
+
+# Preprocess the ResBench dataset without embedding constraints in the Problem text
+# Usage: make preprocess_dataset_noconstraints
+preprocess_dataset_noconstraints:
+	@echo "============================================================"
+	@echo "Preprocessing ResBench Dataset (No Constraints in Problem)"
+	@echo "============================================================"
+	@( \
+		$(PYTHON) -B $(RESBENCH_ROOT)/Dataset/Preprocessed/ResBenchPreprocessing.py \
+			--delay_min_ns 1.0 \
+			--delay_max_ns 10.0 \
+			--freq_min_mhz 100.0 \
+			--freq_max_mhz 1000.0 \
+			$(if $(PREPROCESS_SEED),--seed $(PREPROCESS_SEED),) \
+			--exclude_constraints_in_problem \
+			--output_json_name problems_preprocessed_noconstraints.json \
+	)
+	@echo "✅ No-constraints dataset preprocessing completed!"
 
 # Run LLM-EDA pipeline on ResBench dataset
 # Usage: make MODEL=gpt-4o run_llm_eda_resbench
@@ -49,6 +72,7 @@ run_llm_eda_resbench:
 	@echo "Model: $(MODEL)"
 	@echo "Design IDs: $(ID_START) to $(ID_END)"
 	@echo "Iterations per design: $(ITER)"
+	@echo "Dataset Variant: $(DATASET_VARIANT)"
 	@echo "============================================================"
 	@( \
 		timestamp=$$(date +"%Y%m%d_%H%M%S"); \
@@ -63,7 +87,8 @@ run_llm_eda_resbench:
 					--temperature 1.5 \
 					--top_p 0.75 \
 					--fpga_part "xc7z020clg400-1" \
-					--output_json "exp_$(MODEL)_$${timestamp}.json" \
+					--dataset_variant "$(DATASET_VARIANT)" \
+					--output_json "exp_$(MODEL)_$(DATASET_VARIANT)_$${timestamp}.json" \
 					--verbose; \
 				rm -rf $(ROOT_DIR)/Evaluation/ResBench/Outputs/; \
 			done \
@@ -146,6 +171,9 @@ help:
 	@echo "  preprocess_dataset     - Preprocess the ResBench dataset"
 	@echo "                           Usage: make preprocess_dataset"
 	@echo ""
+	@echo "  preprocess_dataset_noconstraints - Preprocess dataset without constraints in Problem text"
+	@echo "                           Usage: make preprocess_dataset_noconstraints"
+	@echo ""
 	@echo "  run_llm_eda_resbench   - Run LLM-EDA pipeline on ResBench"
 	@echo "                           Usage: make MODEL=gpt-4o run_llm_eda_resbench"
 	@echo ""
@@ -171,13 +199,19 @@ help:
 	@echo "  ID_START     - Starting design ID (default: 1)"
 	@echo "  ID_END       - Ending design ID (default: 56)"
 	@echo "  ITER         - Number of iterations per design (default: 1)"
+	@echo "  DATASET_VARIANT - constrained|noconstraints (default: constrained)"
+	@echo "  PREPROCESS_SEED - Integer seed for deterministic preprocessing (optional)"
 	@echo "  JSON_FILE    - Input JSON file name (default: exp_results.json)"
 	@echo "  INPUT_CSV    - Input CSV file name (default: full_results.csv)"
 	@echo "  OUTPUT_CSV   - Output CSV file name (default: summary_results.csv)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make preprocess_dataset"
+	@echo "  make PREPROCESS_SEED=123 preprocess_dataset"
+	@echo "  make PREPROCESS_SEED=123 preprocess_dataset_noconstraints"
+	@echo "  make preprocess_dataset_noconstraints"
 	@echo "  make MODEL=gpt-4o run_llm_eda_resbench"
+	@echo "  make MODEL=gpt-4o DATASET_VARIANT=noconstraints run_llm_eda_resbench"
 	@echo "  make MODEL=gemini-2.0-flash-exp ID_START=1 ID_END=10 ITER=5 run_llm_eda_resbench"
 	@echo "  make JSON_FILE=exp_gpt-4o_20260318.json generate_csv"
 	@echo "  make JSON_FILE=exp_gpt-4o_20260318.json reorganize_results"

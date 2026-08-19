@@ -11,7 +11,7 @@ import tempfile
 # Common prompt templates
 SYSTEM_PROMPT = \
     "You are an expert in FPGA design, Verilog coding, Python coding. \
-     Be always precise on syntax and semantics. Follow what asked and do not ask more questions."
+    Be always precise on syntax and semantics. Follow what asked and do not ask more questions."
 
 DESIGN_PROMPT = \
     "Design the Verilog code of the provided module, following the reported information. \
@@ -42,6 +42,59 @@ def create_outputs_folder(*directories):
         os.makedirs(directory, exist_ok=True)
 
 
+def _strip_markdown_fences(content):
+    """Remove common Markdown code-fence wrappers from extracted code."""
+    lines = content.strip().splitlines()
+    if lines and lines[0].strip().startswith("```"):
+        lines = lines[1:]
+    if lines and lines[-1].strip().startswith("```"):
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _extract_between_markers(content, start_marker, end_marker):
+    """Extract text between markers while tolerating minor formatting differences."""
+    start_candidates = [start_marker, start_marker.strip()]
+    end_candidates = [end_marker, end_marker.strip()]
+
+    start_index = -1
+    matched_start = None
+    for candidate in start_candidates:
+        start_index = content.find(candidate)
+        if start_index != -1:
+            matched_start = candidate
+            break
+
+    if start_index == -1:
+        return None
+
+    start_index += len(matched_start)
+
+    end_index = -1
+    for candidate in end_candidates:
+        end_index = content.find(candidate, start_index)
+        if end_index != -1:
+            break
+
+    if end_index == -1:
+        return None
+
+    return content[start_index:end_index].strip()
+
+
+def _fallback_extract_verilog(content):
+    """Fallback extraction for Verilog when markers are missing."""
+    start = content.find("module ")
+    if start == -1:
+        return None
+
+    end = content.rfind("endmodule")
+    if end == -1 or end < start:
+        return None
+
+    return content[start:end + len("endmodule")].strip()
+
+
 def extract_script(input_filename, output_filename, start_marker, end_marker, verbose=False):
     """
     Extract code section from file between markers.
@@ -55,18 +108,23 @@ def extract_script(input_filename, output_filename, start_marker, end_marker, ve
     """
     with open(input_filename, 'r') as file:
         content = file.read()
-    start_index = content.find(start_marker)
-    end_index = content.find(end_marker, start_index)
-    if start_index != -1 and end_index != -1:
-        start_index += len(start_marker)
-        extracted_content = content[start_index:end_index].strip()
-        with open(output_filename, 'w') as output_file:
-            output_file.write(extracted_content)
-            if verbose:
-                print(f"Extracted content saved to {output_filename}")
-    else:
+
+    extracted_content = _extract_between_markers(content, start_marker, end_marker)
+
+    if extracted_content is None and output_filename.lower().endswith((".v", ".sv")):
+        extracted_content = _fallback_extract_verilog(content)
+
+    if extracted_content is None:
+        raise ValueError(
+            f"Could not extract content for {output_filename}: markers not found and no fallback matched."
+        )
+
+    extracted_content = _strip_markdown_fences(extracted_content)
+
+    with open(output_filename, 'w') as output_file:
+        output_file.write(extracted_content)
         if verbose:
-            print("Markers not found or invalid.")
+            print(f"Extracted content saved to {output_filename}")
 
 
 def extract_design_info(chat_filename, design_name_marker='// Start Design name'):

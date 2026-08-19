@@ -37,6 +37,10 @@ VIVADO_LOGS_DIR = os.path.join(OUTPUTS_DIR, "vivado_logs")
 VIVADO_REPORTS_DIR = os.path.join(VIVADO_PROJECT_DIR, "reports")
 TCL_DIR = os.path.join(RESBENCH_DIR, "..", "..", "EDA_Interface", "Vivado")
 TCL_DIR = os.path.abspath(TCL_DIR)
+DATASET_FILES = {
+    "constrained": "problems_preprocessed.json",
+    "noconstraints": "problems_preprocessed_noconstraints.json",
+}
 
 
 def create_output_directories():
@@ -60,15 +64,25 @@ class ResBenchPipeline:
         self.design_name = None
         self.total_tokens = 0
         self.total_llm_time = 0.0
+        self.dataset_path = self._resolve_dataset_path()
+
+    def _resolve_dataset_path(self):
+        """Resolve dataset path from explicit file or variant selection."""
+        if self.args.dataset_file:
+            if os.path.isabs(self.args.dataset_file):
+                return self.args.dataset_file
+            return os.path.join(DATASET_DIR, self.args.dataset_file)
+
+        dataset_name = DATASET_FILES[self.args.dataset_variant]
+        return os.path.join(DATASET_DIR, dataset_name)
     
     def run(self):
         """Execute the complete ResBench evaluation pipeline."""
         try:
             create_output_directories()
-            
-            dataset_path = os.path.join(DATASET_DIR, "problems_preprocessed.json")
+
             prompt_file = get_design_from_dataset(
-                dataset_path, 
+                self.dataset_path,
                 DESIGN_FILES_DIR, 
                 self.args.design_id, 
                 self.args.verbose
@@ -208,16 +222,15 @@ class ResBenchPipeline:
         if not os.path.exists(implementation_log):
             implementation_log = None
         
-        dataset_path = os.path.join(DATASET_DIR, "problems_preprocessed.json")
         output_json = os.path.join(ANALYSIS_DIR, self.args.output_json)
         
-        log_results(
+        module_info = log_results(
             llm_model=self.args.model,
             token_count=self.total_tokens,
             llm_time=self.total_llm_time,
             eda_time=eda_time,
             design_id=self.args.design_id,
-            problems_json_path=dataset_path,
+            problems_json_path=self.dataset_path,
             output_json_path=output_json,
             power_report_path=power_report,
             utilization_report_path=utilization_report,
@@ -227,9 +240,39 @@ class ResBenchPipeline:
             sim_passed=sim_passed,
             verilog_path=verilog_path
         )
+
+        self._print_result_summary(module_info, output_json)
         
         if self.args.verbose:
             print(f"Results logged to {output_json}")
+
+    def _print_result_summary(self, module_info, output_json):
+        """Print a compact summary of the logged JSON result entry."""
+        if not module_info:
+            return
+
+        summary_keys = [
+            "ID",
+            "module",
+            "llm_model",
+            "token_count",
+            "llm_time [s]",
+            "eda_time [s]",
+            "Functional Verification",
+            "Synthesis",
+            "Implementation",
+            "LUTs",
+            "Slack [ns]",
+            "Data Path Delay [ns]",
+            "LUTConstraint",
+            "DelayConstraint",
+        ]
+
+        print("\n=== ResBench Run Summary ===")
+        for key in summary_keys:
+            if key in module_info:
+                print(f"{key}: {module_info[key]}")
+        print(f"Results JSON: {output_json}")
 
 
 def parse_arguments():
@@ -256,6 +299,19 @@ def parse_arguments():
     
     parser.add_argument("--output_json", type=str, default="exp_results.json",
                        help="Output JSON filename for results")
+    parser.add_argument(
+        "--dataset_variant",
+        type=str,
+        choices=["constrained", "noconstraints"],
+        default="constrained",
+        help="Dataset variant to use from Dataset/Preprocessed"
+    )
+    parser.add_argument(
+        "--dataset_file",
+        type=str,
+        default=None,
+        help="Optional explicit dataset filename or absolute path (overrides --dataset_variant)"
+    )
     parser.add_argument("--verbose", action="store_true",
                        help="Enable verbose logging")
     
@@ -272,6 +328,9 @@ def main():
     print(f"Design ID: {args.design_id}")
     print(f"Model: {args.model}")
     print(f"FPGA Part: {args.fpga_part}")
+    print(f"Dataset Variant: {args.dataset_variant}")
+    if args.dataset_file:
+        print(f"Dataset File Override: {args.dataset_file}")
     print("=" * 60)
     
     pipeline = ResBenchPipeline(args)

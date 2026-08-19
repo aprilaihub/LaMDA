@@ -1,9 +1,13 @@
 .Xil
 venv
 __pycache__/
+Evaluation/ResBench/Dataset/Preprocessed/problems_preprocessed_noconstraints.json
 Evaluation/ResBench/Analysis/experiments/
+Evaluation/ResBench/Analysis/exp_*.json
 Evaluation/ResBench/Analysis/__pycache__
+Evaluation/ResBench/Outputs/
 clockInfo.txt
+tight_setup_hold_pins.txt
 Tests/Outputs/
 .env
 

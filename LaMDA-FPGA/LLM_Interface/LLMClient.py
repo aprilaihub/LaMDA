@@ -11,15 +11,52 @@ class LLMClient:
     
     def __init__(self, model_name):
         self.model_name = model_name
+        self.request_model = model_name
         self.client = None
+        self.provider = None
         self._setup_client()
-    
+
+    def _is_openai_family_model(self):
+        """Return True for OpenAI-family models that should use OPENAI_API_KEY."""
+        model_lower = self.model_name.lower()
+        return (
+            model_lower.startswith("gpt-")
+            or model_lower.startswith("chatgpt-")
+            or model_lower.startswith("o3")
+            or model_lower.startswith("o4")
+            or model_lower.startswith("o-")
+        )
+
+    def _get_provider(self):
+        """Resolve provider from env override or model naming."""
+        provider_override = os.getenv("LLM_PROVIDER", "").strip().lower()
+        if provider_override:
+            if provider_override not in {"openai", "gemini", "openrouter"}:
+                raise ValueError(
+                    "Unsupported LLM_PROVIDER. Use one of: openai, gemini, openrouter."
+                )
+            return provider_override
+
+        model_lower = self.model_name.lower()
+
+        if model_lower.startswith("gemini-"):
+            return "gemini"
+        if model_lower.startswith("o1"):
+            return "openrouter"
+        if self._is_openai_family_model():
+            return "openai"
+        return "openrouter"
+
     def _setup_client(self):
         """Initialize the appropriate client based on model name."""
-        if self.model_name.startswith("gpt-") or self.model_name.startswith("o-"):
+        self.provider = self._get_provider()
+        self.request_model = self.model_name
+        if self.provider == "openai":
             self._setup_openai_client()
-        elif self.model_name.startswith("gemini-"):
+        elif self.provider == "gemini":
             self._setup_gemini_client()
+        elif self.provider == "openrouter":
+            self._setup_openrouter_client()
         else:
             raise ValueError(f"Unsupported model: {self.model_name}")
     
@@ -31,6 +68,19 @@ class LLMClient:
         if openai_api_key is None:
             raise ValueError("API key not found. Please set the OPENAI_API_KEY environment variable.")
         self.client = OpenAI(api_key=openai_api_key)
+
+    def _setup_openrouter_client(self):
+        """Setup OpenRouter client via OpenAI-compatible API."""
+        from openai import OpenAI
+
+        openrouter_api_key = os.getenv("OPENROUTER_API_KEY")
+        if openrouter_api_key is None:
+            raise ValueError(
+                "API key not found. Please set the OPENROUTER_API_KEY environment variable."
+            )
+
+        base_url = os.getenv("LLM_BASE_URL", "https://openrouter.ai/api/v1")
+        self.client = OpenAI(base_url=base_url, api_key=openrouter_api_key)
     
     def _setup_gemini_client(self):
         """Setup Gemini client."""
@@ -45,15 +95,15 @@ class LLMClient:
     
     def generate_content(self, prompt, system_prompt, max_tokens=1024, temperature=0.7, top_p=1.0):
         """Generate content using the appropriate model."""
-        if self.model_name.startswith("gpt-") or self.model_name.startswith("o-"):
+        if self.provider in {"openai", "openrouter"}:
             return self._generate_openai_content(prompt, system_prompt, max_tokens, temperature, top_p)
-        elif self.model_name.startswith("gemini-"):
+        elif self.provider == "gemini":
             return self._generate_gemini_content(prompt, system_prompt, max_tokens, temperature, top_p)
     
     def _generate_openai_content(self, prompt, system_prompt, max_tokens, temperature, top_p):
         """Generate content using OpenAI models."""
         stream = self.client.chat.completions.create(
-            model=self.model_name,
+            model=self.request_model,
             messages=[
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": prompt}
@@ -84,7 +134,7 @@ class LLMClient:
         )
         
         stream = self.client.models.generate_content_stream(
-            model=self.model_name,
+            model=self.request_model,
             contents=prompt,
             config=config,
         )
@@ -100,7 +150,7 @@ class LLMClient:
         
         # Get accurate token count for Gemini
         token_info = self.client.models.count_tokens(
-            model=self.model_name, 
+            model=self.request_model, 
             contents=full_content
         )
         token_count = token_info.total_tokens

@@ -9,6 +9,8 @@ TEMPERATURE="${TEMPERATURE:-1.0}"
 TOP_P="${TOP_P:-1.0}"
 RUN_SWEEP="${RUN_SWEEP:-0}"
 DESIGN="${DESIGN:-inverter}"
+SYSTEM_PROMPT="${SYSTEM_PROMPT:-}"
+USER_PROMPT="${USER_PROMPT:-}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -40,6 +42,14 @@ while [[ $# -gt 0 ]]; do
       RUN_SWEEP=1
       shift
       ;;
+    --system_prompt)
+      SYSTEM_PROMPT="$2"
+      shift 2
+      ;;
+    --user_prompt)
+      USER_PROMPT="$2"
+      shift 2
+      ;;
     *)
       echo "Unknown argument: $1"
       exit 1
@@ -63,6 +73,12 @@ except Exception as e:
 PY
 
 RUN_ID="$(date +%Y%m%d_%H%M%S)"
+MODEL_TAG="$(echo "$MODEL" | tr '/: ' '___' | tr -cd '[:alnum:]_.-')"
+MODEL_TAG="${MODEL_TAG:-model}"
+PROMPT_LABEL=""
+if [[ -n "$SYSTEM_PROMPT" || -n "$USER_PROMPT" ]]; then
+  PROMPT_LABEL="_customprompt"
+fi
 
 # Normalize design selector and map to canonical folder names.
 DESIGN="$(echo "$DESIGN" | tr '[:upper:]' '[:lower:]')"
@@ -75,7 +91,7 @@ else
   exit 2
 fi
 
-RUN_DIR="Evaluation/${DESIGN_DIR}/output/gen_runs/${RUN_ID}"
+RUN_DIR="Evaluation/${DESIGN_DIR}/output/gen_runs/${RUN_ID}_${DESIGN}_${MODEL_TAG}${PROMPT_LABEL}"
 mkdir -p "$RUN_DIR"
 
 echo "DESIGN=$DESIGN"
@@ -86,6 +102,12 @@ declare -a EXTRA=()
 if [[ "$RUN_SWEEP" == "1" ]]; then
   EXTRA+=("--run_sweep")
 fi
+if [[ -n "$SYSTEM_PROMPT" ]]; then
+  EXTRA+=("--system_prompt" "$SYSTEM_PROMPT")
+fi
+if [[ -n "$USER_PROMPT" ]]; then
+  EXTRA+=("--user_prompt" "$USER_PROMPT")
+fi
 
 if [[ "$DESIGN" == "inverter" ]]; then
   python3 Evaluation/Inverter/Run.py \
@@ -95,7 +117,7 @@ if [[ "$DESIGN" == "inverter" ]]; then
     --top_p "$TOP_P" \
     --run_dir "$RUN_DIR" \
     --tech_cfg "$TECH_CFG" \
-    "${EXTRA[@]}"
+    "${EXTRA[@]+${EXTRA[@]}}"
 elif [[ "$DESIGN" == "ota" ]]; then
   python3 Evaluation/OTA/Run.py \
     --model "$MODEL" \
@@ -104,7 +126,7 @@ elif [[ "$DESIGN" == "ota" ]]; then
     --top_p "$TOP_P" \
     --run_dir "$RUN_DIR" \
     --tech_cfg "$TECH_CFG" \
-    "${EXTRA[@]}"
+    "${EXTRA[@]+${EXTRA[@]}}"
 else
   echo "Unsupported design: $DESIGN (expected inverter or ota)"
   exit 2

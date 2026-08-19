@@ -28,7 +28,7 @@ LaMDA-RF addresses the challenge of RF circuit design automation by combining th
 - **Keysight ADS**: 2025 or 2026 (sets `HPEESOF_DIR` environment variable)
 - **ADS Python venv**: at `~/ads2026_venv` (or set `ADS_VENV_PYTHON`)
 - **Operating System**: Windows (tested)
-- **API Key**: for an OpenAI-compatible LLM endpoint
+- **API Key**: for an OpenAI-compatible LLM endpoint, or an OpenRouter API key for OpenRouter-hosted models
 
 ### Step 1: Access the Repository
 
@@ -90,6 +90,17 @@ Optional overrides:
 ```
 LLM_BASE_URL=https://your-llm-endpoint
 ADS_VENV_PYTHON=C:\path\to\ads2026_venv\Scripts\python.exe
+```
+
+OpenRouter option:
+
+```
+OPENROUTER_API_KEY=your_openrouter_key_here
+LLM_PROVIDER=openrouter
+LLM_BASE_URL=https://openrouter.ai/api/v1
+
+# Optional: without LLM_PROVIDER, model names in provider/model format also route to OpenRouter
+# Example model: openrouter/meta-llama/llama-3.1-8b-instruct
 ```
 
 ### Step 4: Generate ADS Component Libraries and Reference Netlist
@@ -168,6 +179,9 @@ cd Tests
 # Run smoke test with o3
 .\run.ps1 run_test -Model o3
 
+# Run smoke test with an OpenRouter model
+.\run.ps1 run_test -Model openrouter/meta-llama/llama-3.1-8b-instruct
+
 # Run with custom parameters
 .\run.ps1 run_test -Model o3 -Temperature 1.0 -VerboseOutput
 ```
@@ -206,6 +220,9 @@ cd Evaluation
 
 # Run with o3, 5 iterations
 .\run.ps1 run_custom -Model o3 -Iterations 5
+
+# Run with an OpenRouter model, 5 iterations
+.\run.ps1 run_custom -Model openrouter/meta-llama/llama-3.1-8b-instruct -Iterations 5
 
 # Run with all options
 .\run.ps1 run_custom -Model o3 -Iterations 5 -Temperature 1.0 -TopP 1.0 -VerboseOutput

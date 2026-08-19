@@ -32,13 +32,23 @@ Each problem includes:
 
 ### Preprocessing
 
-Before running evaluations, preprocess the dataset to embed the constraint information:
+Before running evaluations, preprocess one of the dataset variants:
 
 ```bash
+# Constraints embedded into Problem text
 make preprocess_dataset
+
+# Constraints NOT embedded into Problem text
+make preprocess_dataset_noconstraints
+
+# Deterministic paired preprocessing for A/B comparison
+make PREPROCESS_SEED=123 preprocess_dataset
+make PREPROCESS_SEED=123 preprocess_dataset_noconstraints
 ```
 
-This reads `Dataset/Original/problems.json` and writes `Dataset/Preprocessed/problems_preprocessed.json`.
+This reads `Dataset/Original/problems.json` and writes:
+- `Dataset/Preprocessed/problems_preprocessed.json` (constraints in Problem)
+- `Dataset/Preprocessed/problems_preprocessed_noconstraints.json` (no constraints in Problem)
 
 ---
 
@@ -100,7 +110,8 @@ This reads `Dataset/Original/problems.json` and writes `Dataset/Preprocessed/pro
 
 | Target | Description | Usage |
 |--------|-------------|-------|
-| `preprocess_dataset` | Preprocess ResBench dataset with constraints | `make preprocess_dataset` |
+| `preprocess_dataset` | Preprocess ResBench dataset with constraints in Problem text | `make preprocess_dataset` |
+| `preprocess_dataset_noconstraints` | Preprocess dataset without constraints in Problem text | `make preprocess_dataset_noconstraints` |
 | `run_llm_eda_resbench` | Run evaluation on ResBench problems | `make MODEL=gpt-4o run_llm_eda_resbench` |
 | `json_to_csv` | Convert JSON results to full CSV | `make JSON_FILE=exp.json json_to_csv` |
 | `compress_csv` | Compress full CSV to summary | `make compress_csv INPUT_CSV=full_results.csv OUTPUT_CSV=summary_results.csv` |
@@ -115,6 +126,8 @@ This reads `Dataset/Original/problems.json` and writes `Dataset/Preprocessed/pro
 - `ID_START` - Starting design ID (default: `1`)
 - `ID_END` - Ending design ID (default: `56`)
 - `ITER` - Number of iterations per design (default: `1`)
+- `DATASET_VARIANT` - `constrained` or `noconstraints` (default: `constrained`)
+- `PREPROCESS_SEED` - Integer seed for deterministic preprocessing (optional)
 - `JSON_FILE` - JSON results filename (default: `exp_results.json`)
 - `INPUT_CSV` - Input CSV filename (default: `full_results.csv`)
 - `OUTPUT_CSV` - Output CSV filename (default: `summary_results.csv`)
@@ -126,9 +139,15 @@ cd Evaluation/ResBench
 
 # Preprocess dataset
 make preprocess_dataset
+make preprocess_dataset_noconstraints
+make PREPROCESS_SEED=123 preprocess_dataset
+make PREPROCESS_SEED=123 preprocess_dataset_noconstraints
 
 # Evaluate all 56 problems with GPT-4o (1 iteration each)
 make MODEL=gpt-4o run_llm_eda_resbench
+
+# Evaluate using prompts without embedded constraints
+make MODEL=gpt-4o DATASET_VARIANT=noconstraints run_llm_eda_resbench
 
 # Evaluate a subset with multiple iterations (for statistical significance)
 make MODEL=gpt-4o ID_START=1 ID_END=10 ITER=5 run_llm_eda_resbench
@@ -150,9 +169,13 @@ cd Evaluation/ResBench
 
 # 1. Preprocess dataset (if constraints changed)
 make preprocess_dataset
+make preprocess_dataset_noconstraints
+make PREPROCESS_SEED=123 preprocess_dataset
+make PREPROCESS_SEED=123 preprocess_dataset_noconstraints
 
 # 2. Run evaluation (5 iterations per run)
 make MODEL=gpt-4o ID_START=1 ID_END=56 ITER=5 run_llm_eda_resbench
+make MODEL=gpt-4o DATASET_VARIANT=noconstraints ID_START=1 ID_END=56 ITER=5 run_llm_eda_resbench
 
 # 3. Convert results to CSV
 make JSON_FILE=exp_gpt-4o_20260318_120000.json generate_csv

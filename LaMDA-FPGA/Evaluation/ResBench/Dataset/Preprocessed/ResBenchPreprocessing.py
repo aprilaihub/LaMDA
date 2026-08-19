@@ -274,15 +274,26 @@ class SimulationLogParser:
             return 0
 
 
-def run_full_preprocessing(delay_min_ns=6.0, delay_max_ns=9.0, freq_min_mhz=100.0, freq_max_mhz=200.0):
+def run_full_preprocessing(
+    delay_min_ns=6.0,
+    delay_max_ns=9.0,
+    freq_min_mhz=100.0,
+    freq_max_mhz=200.0,
+    include_constraints_in_problem=True,
+    output_json_name="problems_preprocessed.json",
+    seed=None
+):
     """Execute complete preprocessing pipeline on ResBench dataset."""
     resbench_dir = os.path.dirname(os.path.abspath(__file__))
     dataset_dir = os.path.dirname(resbench_dir)
     original_dir = os.path.join(dataset_dir, 'Original')
     
     input_json = os.path.join(original_dir, "problems.json")
-    output_json = os.path.join(resbench_dir, "problems_preprocessed.json")
+    output_json = os.path.join(resbench_dir, output_json_name)
     csv_path = os.path.join(original_dir, "solution_resource_analysis.csv")
+
+    if seed is not None:
+        random.seed(seed)
     
     try:
         preprocessor = DatasetPreprocessor(input_json, output_json)
@@ -300,8 +311,9 @@ def run_full_preprocessing(delay_min_ns=6.0, delay_max_ns=9.0, freq_min_mhz=100.
         # Step 4: Add clock constraints
         preprocessor.add_clock_constraints(freq_min_mhz, freq_max_mhz)
         
-        # Step 5: Enrich prompts with objectives
-        preprocessor.enrich_prompts_with_objectives()
+        # Step 5: Optionally enrich prompts with objectives
+        if include_constraints_in_problem:
+            preprocessor.enrich_prompts_with_objectives()
         
         return 1
     except Exception as e:
@@ -334,13 +346,41 @@ def dataset_preprocess():
     parser.add_argument("--delay_max_ns", type=float, default=9.0, help="Maximum delay constraint in nanoseconds")
     parser.add_argument("--freq_min_mhz", type=float, default=100.0, help="Minimum clock frequency in MHz")
     parser.add_argument("--freq_max_mhz", type=float, default=200.0, help="Maximum clock frequency in MHz")
+    parser.add_argument(
+        "--output_json_name",
+        type=str,
+        default="problems_preprocessed.json",
+        help="Output JSON filename written into Dataset/Preprocessed"
+    )
+    parser.add_argument(
+        "--include_constraints_in_problem",
+        dest="include_constraints_in_problem",
+        action="store_true",
+        default=True,
+        help="Include LUT/timing constraints in each Problem field"
+    )
+    parser.add_argument(
+        "--exclude_constraints_in_problem",
+        dest="include_constraints_in_problem",
+        action="store_false",
+        help="Do not append LUT/timing constraints to each Problem field"
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Optional random seed for deterministic delay/clock sampling"
+    )
     args = parser.parse_args()
     
     return run_full_preprocessing(
         delay_min_ns=args.delay_min_ns,
         delay_max_ns=args.delay_max_ns,
         freq_min_mhz=args.freq_min_mhz,
-        freq_max_mhz=args.freq_max_mhz
+        freq_max_mhz=args.freq_max_mhz,
+        include_constraints_in_problem=args.include_constraints_in_problem,
+        output_json_name=args.output_json_name,
+        seed=args.seed
     )
 
 

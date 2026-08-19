@@ -227,6 +227,8 @@ class ResultsLogger:
         
         # Append to existing results
         self._append_and_save(module_info)
+
+        return module_info
     
     def _extract_module_info(self, data, design_id, llm_model, token_count, 
                              llm_time, eda_time, sim_passed, verilog_path):
@@ -326,6 +328,16 @@ class ResultsLogger:
     
     def _check_constraints(self, module_info, data):
         """Check LUT and delay/clock constraints."""
+        # Constraints are only meaningful when all evaluation stages pass.
+        fv_ok = str(module_info.get("Functional Verification", "")).upper() == "PASS"
+        syn_ok = str(module_info.get("Synthesis", "")).upper() == "PASS"
+        impl_ok = str(module_info.get("Implementation", "")).upper() == "PASS"
+
+        if not (fv_ok and syn_ok and impl_ok):
+            module_info["LUTConstraint"] = "FAIL"
+            module_info["DelayConstraint"] = "FAIL"
+            return
+
         lut_min = None
         delay_max = None
         
@@ -1046,9 +1058,9 @@ def log_results(llm_model, token_count, llm_time, eda_time, design_id,
                 verilog_path=None):
     """Legacy wrapper for ResultsLogger.log_results."""
     logger = ResultsLogger(problems_json_path, output_json_path)
-    logger.log_results(llm_model, token_count, llm_time, eda_time, design_id,
-                       power_report_path, utilization_report_path, timing_report_path,
-                       synthesis_log_path, implementation_log_path, sim_passed, verilog_path)
+    return logger.log_results(llm_model, token_count, llm_time, eda_time, design_id,
+                              power_report_path, utilization_report_path, timing_report_path,
+                              synthesis_log_path, implementation_log_path, sim_passed, verilog_path)
 
 
 def json_to_csv(json_path, csv_path):

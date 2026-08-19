@@ -17,7 +17,9 @@ LaMDA-FPGA addresses the challenge of FPGA design automation by combining the na
 5. **Analyzes** results and provides optimization recommendations
 6. **Benchmarks** LLM performance across diverse hardware design categories
 
-The tool supports multiple LLM providers (OpenAI GPT models, Google Gemini) and provides comprehensive metrics for both LLM performance and FPGA resource utilization.
+The tool supports multiple LLM providers (OpenAI GPT models, Google Gemini, and OpenRouter including DeepSeek models) and provides comprehensive metrics for both LLM performance and FPGA resource utilization.
+
+LLM outputs are normalized by the Python extractor, which strips Markdown fences and applies compatibility fallbacks for minor formatting differences to reduce model-specific breakage.
 
 For benchmark evaluation using the ResBench dataset, see [Evaluation/ResBench/README.md](Evaluation/ResBench/README.md).
 
@@ -55,9 +57,19 @@ pip install -r requirements.txt
 Create a `.env` file or export variables:
 
 ```bash
-# LLM API Keys (choose one or both)
+# LLM API Keys (choose one or more)
 export OPENAI_API_KEY="your-openai-api-key-here"
 export GEMINI_API_KEY="your-gemini-api-key-here"
+export OPENROUTER_API_KEY="your-openrouter-api-key-here"
+
+# Optional provider override (openai, gemini, openrouter)
+export LLM_PROVIDER="openrouter"
+
+# Optional OpenRouter endpoint override
+export LLM_BASE_URL="https://openrouter.ai/api/v1"
+
+# Optional: any non-gpt/o-/gemini-* model name will route to OpenRouter when OPENROUTER_API_KEY is set
+# Example: MODEL=llama-4-maverick
 
 # Vivado Installation Path (Example)
 export VIVADO_PATH="/opt/Xilinx/Vivado/2024.1/bin/vivado"
@@ -138,6 +150,9 @@ make MODEL=gpt-4o run_test
 # Run with Gemini
 make MODEL=gemini-2.0-flash-exp run_test
 
+# Run with DeepSeek via OpenRouter
+make MODEL=deepseek/deepseek-chat run_test
+
 # Run with custom parameters
 make MODEL=gpt-4o MAX_TOKENS=4000 TEMPERATURE=0.7 TOP_P=0.9 run_test
 
@@ -176,6 +191,9 @@ cd Evaluation/Custom
 
 # Run with GPT-4o
 make MODEL=gpt-4o run_custom
+
+# Run with DeepSeek via OpenRouter
+make MODEL=deepseek/deepseek-chat run_custom
 
 # Run with custom parameters
 make MODEL=gpt-4o MAX_TOKENS=4000 TEMPERATURE=0.7 TOP_P=0.9 run_custom

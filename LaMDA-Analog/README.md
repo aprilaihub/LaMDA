@@ -10,7 +10,7 @@ LaMDA-Analog is an automated framework that leverages Large Language Models (LLM
 
 LaMDA-Analog addresses the challenge of analog circuit design automation by combining the natural language understanding capabilities of modern LLMs with the precision of industry-standard simulation tools. The framework automatically:
 
-1. **Reads** a user prompt and design constraints from `Evaluation/<Design>/user_prompt.txt` and `constraints.yml`
+1. **Reads** a user prompt and design constraints from defaults (`Evaluation/<Design>/user_prompt.txt`, `constraints.yml`) or optional shell overrides
 2. **Builds** an effective prompt by appending machine-readable constraint bullets to the base prompt
 3. **Generates** a PDK-agnostic Spectre netlist via the LLM
 4. **Binds** the netlist to a local technology using `config/tech_config.yml`
@@ -29,7 +29,7 @@ The current implementation targets two topologies: **CMOS inverter** and **5-tra
 - **Python**: 3.9 or higher
 - **Cadence Virtuoso Spectre**: available in `PATH` or via `SPECTRE_PATH`
 - **Operating System**: Linux (tested on Rocky Linux 9)
-- **API Keys**: OpenAI and/or Google Gemini
+- **API Keys**: OpenAI, Google Gemini, and/or OpenRouter (for DeepSeek and other OpenRouter models)
 
 ### Step 1: Access the Repository
 
@@ -54,9 +54,19 @@ pip install -r requirements.txt
 Export variables or add them to a `.env` file:
 
 ```bash
-# LLM API Keys (choose one or both)
+# LLM API Keys (choose one or more)
 export OPENAI_API_KEY="your-openai-api-key-here"
 export GEMINI_API_KEY="your-gemini-api-key-here"
+export OPENROUTER_API_KEY="your-openrouter-api-key-here"
+
+# Optional provider override (openai, gemini, openrouter)
+export LLM_PROVIDER="openrouter"
+
+# Optional OpenRouter endpoint override
+export LLM_BASE_URL="https://openrouter.ai/api/v1"
+
+# Optional: any non-gpt/o-/gemini-* model name will route to OpenRouter when OPENROUTER_API_KEY is set
+# Example: MODEL=llama-4-maverick
 ```
 
 ### Step 4: Configure Local Technology
@@ -129,6 +139,9 @@ make run
 
 # Run with a specific model
 make MODEL=gpt-4o MAX_TOKENS=4000 run
+
+# Run with DeepSeek via OpenRouter
+make MODEL=deepseek/deepseek-chat run
 ```
 
 ---
@@ -151,6 +164,9 @@ make run
 
 # Run with a specific model and temperature
 make MODEL=gpt-4o TEMPERATURE=0.8 run
+
+# Run with DeepSeek via OpenRouter
+make MODEL=deepseek/deepseek-chat TEMPERATURE=0.8 run
 ```
 
 **Common Parameters (both designs):**
@@ -165,7 +181,7 @@ make MODEL=gpt-4o TEMPERATURE=0.8 run
 
 ## 🖥 Shell Runner
 
-`run_analog.sh` is the top-level entrypoint and accepts the same parameters as the Makefiles.
+`run_analog.sh` is the top-level entrypoint and accepts Makefile-like generation parameters plus optional prompt overrides.
 
 ### Inverter flow
 
@@ -196,8 +212,16 @@ bash run_analog.sh \
   --temperature 0.8 \
   --top_p 0.95 \
   --tech_cfg config/tech_config.yml \
+  --system_prompt Evaluation/Inverter/system_prompt.md \
+  --user_prompt Evaluation/Inverter/user_prompt.txt \
   --run-sweep
 ```
+
+### Optional prompt override flags
+
+- `--system_prompt <path>`: use a custom system prompt file for this run.
+- `--user_prompt <path>`: use a custom user prompt file for this run.
+- If either override is used, run/sweep folder labels include `customprompt`.
 
 ---
 
@@ -213,7 +237,7 @@ flowchart TD
     G --> H["📊 Parse PSF Results\npsf_parser.py"]:::parse
     H --> I["📄 Summary JSON\n+ Chat Log"]:::output
     G -.->|"--run-sweep"| J["🔁 Parameter Sweep\nsweep_generic / sweep_ota"]:::sweep
-    J --> K["📈 Sweep CSV\n+ LLM Recommendation"]:::sweep
+    J --> K["📈 Sweep CSV\n(+ optional LLM recommendation)"]:::sweep
 
     classDef input   fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
     classDef proc    fill:#ede9fe,stroke:#7c3aed,color:#1e1b4b
@@ -285,15 +309,22 @@ All artifacts are written under `Evaluation/<Design>/output/`:
 
 | Path | Contents |
 |------|----------|
-| `output/gen_runs/<RUN_ID>/llm_raw_<RUN_ID>.scs` | Raw PDK-agnostic deck from LLM |
-| `output/gen_runs/<RUN_ID>/inverter_netlist_<RUN_ID>.scs` | Technology-bound inverter netlist |
-| `output/gen_runs/<RUN_ID>/ota_netlist_<RUN_ID>.scs` | Technology-bound OTA netlist |
-| `output/gen_runs/<RUN_ID>/quick*.log` | Spectre simulation log |
-| `output/gen_runs/<RUN_ID>/quick*_psf/` | Raw PSF output directory |
-| `output/gen_runs/<RUN_ID>/summary_<design>.json` | Extracted metrics and run metadata |
-| `output/gen_runs/<RUN_ID>/chat.jsonl` | Full prompt/response chat log |
-| `output/sweep_results/<timestamp>/summary.csv` | Parameter sweep results table |
-| `output/sweep_results/<timestamp>/summary.llm.json` | Sweep results in LLM-readable format |
+| `output/gen_runs/<RUN_NAME>/llm_raw_<RUN_NAME>.scs` | Raw PDK-agnostic deck from LLM |
+| `output/gen_runs/<RUN_NAME>/inverter_netlist_<RUN_NAME>.scs` | Technology-bound inverter netlist |
+| `output/gen_runs/<RUN_NAME>/ota_netlist_<RUN_NAME>.scs` | Technology-bound OTA netlist |
+| `output/gen_runs/<RUN_NAME>/quick*.log` | Spectre simulation log |
+| `output/gen_runs/<RUN_NAME>/quick*_psf/` | Raw PSF output directory |
+| `output/gen_runs/<RUN_NAME>/summary_<design>.json` | Extracted metrics and run metadata |
+| `output/gen_runs/<RUN_NAME>/chat*.jsonl` | Prompt/effective prompt chat logs |
+| `output/sweep_results/<SWEEP_RUN_NAME>/summary.csv` | Inverter sweep results table |
+| `output/sweep_results/<SWEEP_RUN_NAME>/summary.llm.json` | Inverter sweep results in LLM-readable JSON (via `report_parser.py`) |
+| `output/sweep_results/<SWEEP_RUN_NAME>/summary_ota.csv` | OTA sweep results table |
+| `output/sweep_results/<SWEEP_RUN_NAME>/summary_ota_bode.csv` | OTA Bode curve summary |
+
+Naming notes:
+
+- `<RUN_NAME>` follows `YYYYMMDD_HHMMSS_<design>_<model>[_customprompt]`.
+- `<SWEEP_RUN_NAME>` follows `YYYYMMDD_HHMMSS_<design>_<model>[_customprompt]_sweep`.
 
 ---
 
@@ -303,6 +334,7 @@ All artifacts are written under `Evaluation/<Design>/output/`:
 |---------|-----|
 | `SPECTRE_PATH is not set` | `export SPECTRE_PATH=/path/to/spectre` |
 | `OPENAI_API_KEY not set` | `export OPENAI_API_KEY=your-key` |
+| `OPENROUTER_API_KEY not set` (for OpenRouter/DeepSeek models) | `export OPENROUTER_API_KEY=your-key` |
 | `tech_config.yml not found` | `cp config/tech_config.example.yml config/tech_config.yml` and fill in PDK paths |
 | Quick run fails, files generated | Inspect `output/gen_runs/<RUN_ID>/quick*.log` for Spectre errors |
 | Sweep skipped with `[WARN]` | Sweep scripts require `EDA_Interface/sweep_generic.py` to exist (already included) |

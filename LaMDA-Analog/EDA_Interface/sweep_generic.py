@@ -335,7 +335,14 @@ def main():
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     out_root = Path(os.getenv("SWEEP_RESULTS_DIR", "sweep_results"))
     out_root.mkdir(exist_ok=True)
-    run_dir = out_root / ts
+    run_label = os.getenv("SWEEP_RUN_LABEL", "").strip()
+    if run_label:
+        run_label = re.sub(r"^\d{8}_\d{6}_?", "", run_label)
+        safe_label = re.sub(r"[^A-Za-z0-9_.-]+", "_", run_label).strip("_.-")
+        run_name = f"{ts}_{safe_label}" if safe_label else ts
+    else:
+        run_name = ts
+    run_dir = out_root / run_name
     run_dir.mkdir(exist_ok=True)
 
     pts = load_llm_sweep_points()
