@@ -64,6 +64,8 @@ class ResBenchPipeline:
         self.design_name = None
         self.total_tokens = 0
         self.total_llm_time = 0.0
+        self.pipeline_error = None
+        self.pipeline_error_stage = None
         self.dataset_path = self._resolve_dataset_path()
 
     def _resolve_dataset_path(self):
@@ -95,20 +97,40 @@ class ResBenchPipeline:
             if self.args.verbose:
                 print("\n=== Generating Verilog Design ===")
             self._generate_design(prompt_file)
-            
+
+            sim_passed = False
+            eda_start_time = time.time()
+
             if self.args.verbose:
                 print("\n=== Running Simulation ===")
-            sim_passed = self._run_simulation()
-            
-            eda_start_time = time.time()
-            if sim_passed:
+            try:
+                sim_passed = self._run_simulation()
+            except Exception as e:
+                # Keep the run loggable in JSON even if Vivado exits non-zero.
+                self.pipeline_error_stage = "simulation"
+                self.pipeline_error = str(e)
+                sim_passed = False
+                print(f"Simulation stage failed with error: {e}")
+
+            if sim_passed and not self.pipeline_error:
                 if self.args.verbose:
                     print("\n=== Running Synthesis ===")
-                self._run_synthesis()
-                
-                if self.args.verbose:
-                    print("\n=== Running Implementation ===")
-                self._run_implementation()
+                try:
+                    self._run_synthesis()
+                except Exception as e:
+                    self.pipeline_error_stage = "synthesis"
+                    self.pipeline_error = str(e)
+                    print(f"Synthesis stage failed with error: {e}")
+
+                if not self.pipeline_error:
+                    if self.args.verbose:
+                        print("\n=== Running Implementation ===")
+                    try:
+                        self._run_implementation()
+                    except Exception as e:
+                        self.pipeline_error_stage = "implementation"
+                        self.pipeline_error = str(e)
+                        print(f"Implementation stage failed with error: {e}")
             else:
                 if self.args.verbose:
                     print("\nSimulation failed. Skipping synthesis and implementation.")
@@ -117,8 +139,12 @@ class ResBenchPipeline:
             
             if self.args.verbose:
                 print("\n=== Logging Results ===")
-            self._log_results(sim_passed, eda_time)
+            self._log_results(sim_passed, eda_time, self.pipeline_error)
             
+            if self.pipeline_error:
+                print(f"Pipeline completed with stage failure in {self.pipeline_error_stage}.")
+                return 0
+
             if self.args.verbose:
                 print("\n=== Pipeline Completed Successfully ===")
             
@@ -202,11 +228,12 @@ class ResBenchPipeline:
             verbose=self.args.verbose
         )
     
-    def _log_results(self, sim_passed, eda_time):
+    def _log_results(self, sim_passed, eda_time, pipeline_error=None):
         """Log experimental results."""
         power_report = os.path.join(VIVADO_REPORTS_DIR, "implementation", "power_report.txt")
         utilization_report = os.path.join(VIVADO_REPORTS_DIR, "implementation", "utilization_report.txt")
         timing_report = os.path.join(VIVADO_REPORTS_DIR, "implementation", "timing_report.txt")
+        simulation_log = os.path.join(VIVADO_LOGS_DIR, f"{self.design_name}_sim.log")
         synthesis_log = os.path.join(VIVADO_LOGS_DIR, f"{self.design_name}_synth.log")
         implementation_log = os.path.join(VIVADO_LOGS_DIR, f"{self.design_name}_impl.log")
         verilog_path = os.path.join(DESIGN_FILES_DIR, f"{self.design_name}.v")
@@ -217,6 +244,8 @@ class ResBenchPipeline:
             utilization_report = None
         if not os.path.exists(timing_report):
             timing_report = None
+        if not os.path.exists(simulation_log):
+            simulation_log = None
         if not os.path.exists(synthesis_log):
             synthesis_log = None
         if not os.path.exists(implementation_log):
@@ -235,9 +264,11 @@ class ResBenchPipeline:
             power_report_path=power_report,
             utilization_report_path=utilization_report,
             timing_report_path=timing_report,
+            simulation_log_path=simulation_log,
             synthesis_log_path=synthesis_log,
             implementation_log_path=implementation_log,
             sim_passed=sim_passed,
+            simulation_error=pipeline_error,
             verilog_path=verilog_path
         )
 

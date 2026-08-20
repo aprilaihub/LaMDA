@@ -125,6 +125,22 @@ class DatasetPreprocessor:
                             design["Clock Frequency [MHz]"] = None
         
         self._save_data()
+
+    def remove_timing_constraints(self, keep_clock_frequency=False):
+        """Remove delay/clock constraints while optionally keeping clock frequency metadata."""
+        self._load_data()
+
+        if isinstance(self.data, dict):
+            for category in self.data:
+                designs_list = self.data[category]
+                if isinstance(designs_list, list):
+                    for design in designs_list:
+                        design.pop("DelayMax [ns]", None)
+                        design.pop("Clock Constraint", None)
+                        if not keep_clock_frequency:
+                            design.pop("Clock Frequency [MHz]", None)
+
+        self._save_data()
     
     def enrich_prompts_with_objectives(self):
         """Enrich problem descriptions with objective constraints in natural language."""
@@ -280,6 +296,7 @@ def run_full_preprocessing(
     freq_min_mhz=100.0,
     freq_max_mhz=200.0,
     include_constraints_in_problem=True,
+    include_timing_constraints=True,
     output_json_name="problems_preprocessed.json",
     seed=None
 ):
@@ -305,11 +322,15 @@ def run_full_preprocessing(
         preprocessor.input_json_path = output_json  # Update to work on preprocessed file
         preprocessor.add_lutmin(csv_path)
         
-        # Step 3: Add delay constraints
-        preprocessor.add_delay_constraints(delay_min_ns, delay_max_ns)
-        
-        # Step 4: Add clock constraints
-        preprocessor.add_clock_constraints(freq_min_mhz, freq_max_mhz)
+        # Step 3/4: Add or remove timing constraints
+        if include_timing_constraints:
+            preprocessor.add_delay_constraints(delay_min_ns, delay_max_ns)
+            preprocessor.add_clock_constraints(freq_min_mhz, freq_max_mhz)
+        else:
+            # Keep sampled clock frequency targets for post-run checks, but do not
+            # emit explicit clock/delay constraints into the dataset.
+            preprocessor.add_clock_constraints(freq_min_mhz, freq_max_mhz)
+            preprocessor.remove_timing_constraints(keep_clock_frequency=True)
         
         # Step 5: Optionally enrich prompts with objectives
         if include_constraints_in_problem:
@@ -366,6 +387,19 @@ def dataset_preprocess():
         help="Do not append LUT/timing constraints to each Problem field"
     )
     parser.add_argument(
+        "--include_timing_constraints",
+        dest="include_timing_constraints",
+        action="store_true",
+        default=True,
+        help="Generate delay and clock constraints in dataset fields"
+    )
+    parser.add_argument(
+        "--exclude_timing_constraints",
+        dest="include_timing_constraints",
+        action="store_false",
+        help="Do not generate DelayMax/Clock Constraint/Clock Frequency fields"
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -379,6 +413,7 @@ def dataset_preprocess():
         freq_min_mhz=args.freq_min_mhz,
         freq_max_mhz=args.freq_max_mhz,
         include_constraints_in_problem=args.include_constraints_in_problem,
+        include_timing_constraints=args.include_timing_constraints,
         output_json_name=args.output_json_name,
         seed=args.seed
     )

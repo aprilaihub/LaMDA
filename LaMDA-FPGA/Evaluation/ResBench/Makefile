@@ -55,6 +55,7 @@ preprocess_dataset_noconstraints:
 			--freq_max_mhz 1000.0 \
 			$(if $(PREPROCESS_SEED),--seed $(PREPROCESS_SEED),) \
 			--exclude_constraints_in_problem \
+			--exclude_timing_constraints \
 			--output_json_name problems_preprocessed_noconstraints.json \
 	)
 	@echo "✅ No-constraints dataset preprocessing completed!"

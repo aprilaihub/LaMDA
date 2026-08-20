@@ -57,7 +57,7 @@ pip install -r requirements.txt
 Create a `.env` file or export variables:
 
 ```bash
-# LLM API Keys (choose one or more)
+# LLM API Keys (set at least one)
 export OPENAI_API_KEY="your-openai-api-key-here"
 export GEMINI_API_KEY="your-gemini-api-key-here"
 export OPENROUTER_API_KEY="your-openrouter-api-key-here"
@@ -102,7 +102,7 @@ Located at the project root. Environment setup (venv creation and dependency ins
 
 | Target | Description | Usage |
 |--------|-------------|-------|
-| `check_env` | Verify environment variables are set | `make check_env` |
+| `check_env` | Verify VIVADO_PATH and that at least one API key is set (OPENAI_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY) | `make check_env` |
 | `freeze_deps` | Save current dependencies to requirements.txt | `make freeze_deps` |
 | `clean_env` | Remove virtual environment | `make clean_env` |
 | `help_root` | Display help message | `make help_root` |

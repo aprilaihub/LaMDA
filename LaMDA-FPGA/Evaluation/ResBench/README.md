@@ -75,7 +75,7 @@ This reads `Dataset/Original/problems.json` and writes:
 
 #### Constraint Metrics
 - **LUT Constraint**: PASS if LUTs ≤ LUTmin
-- **Delay Constraint**: PASS if meets timing or delay requirements
+- **Delay Constraint**: PASS if timing target is met (clock-constrained slack check, frequency-derived period check, or DelayMax check depending on dataset fields)
 
 ### Example Result Entry
 

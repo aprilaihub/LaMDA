@@ -20,12 +20,13 @@ check_env:
 	@echo "VIVADO_PATH: $${VIVADO_PATH:-❌ Not set}"
 	@echo "OPENAI_API_KEY: $${OPENAI_API_KEY:+✅ Set}$${OPENAI_API_KEY:-❌ Not set}"
 	@echo "GEMINI_API_KEY: $${GEMINI_API_KEY:+✅ Set}$${GEMINI_API_KEY:-❌ Not set}"
+	@echo "OPENROUTER_API_KEY: $${OPENROUTER_API_KEY:+✅ Set}$${OPENROUTER_API_KEY:-❌ Not set}"
 	@echo ""
 	@if [ -z "$${VIVADO_PATH}" ]; then \
 		echo "⚠️  VIVADO_PATH is not set"; \
 	fi
-	@if [ -z "$${OPENAI_API_KEY}" ] && [ -z "$${GEMINI_API_KEY}" ]; then \
-		echo "⚠️  No API keys set. Set at least OPENAI_API_KEY or GEMINI_API_KEY"; \
+	@if [ -z "$${OPENAI_API_KEY}" ] && [ -z "$${GEMINI_API_KEY}" ] && [ -z "$${OPENROUTER_API_KEY}" ]; then \
+		echo "⚠️  No API keys set. Set at least OPENAI_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY"; \
 	fi
 	@echo "============================================================"
 
@@ -72,7 +73,7 @@ help_root:
 	@echo ""
 	@echo "Environment Setup:"
 	@echo "  1. Create .env file:     cp .env.example .env"
-	@echo "  2. Edit with your keys:  nano .env"
+	@echo "  2. Edit with your keys:  set OPENAI_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY"
 	@echo "  3. Check variables:      make check_env"
 	@echo ""
 	@echo "Examples:"

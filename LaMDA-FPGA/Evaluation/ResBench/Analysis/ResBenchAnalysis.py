@@ -197,9 +197,10 @@ class ResultsLogger:
         self.parser = ReportParser()
     
     def log_results(self, llm_model, token_count, llm_time, eda_time, design_id,
-                    power_report_path=None, utilization_report_path=None, 
-                    timing_report_path=None, synthesis_log_path=None, 
-                    implementation_log_path=None, sim_passed=False, verilog_path=None):
+                    power_report_path=None, utilization_report_path=None,
+                    timing_report_path=None, simulation_log_path=None,
+                    synthesis_log_path=None, implementation_log_path=None,
+                    sim_passed=False, simulation_error=None, verilog_path=None):
         """Log module ID, verification status, and design metrics to JSON."""
         # Load problems.json
         with open(self.problems_json_path, 'r', encoding='utf-8') as f:
@@ -223,7 +224,14 @@ class ResultsLogger:
         self._check_constraints(module_info, data)
         
         # Add error descriptions
-        self._add_error_descriptions(module_info, sim_passed, synthesis_log_path, implementation_log_path)
+        self._add_error_descriptions(
+            module_info,
+            sim_passed,
+            simulation_log_path,
+            synthesis_log_path,
+            implementation_log_path,
+            simulation_error,
+        )
         
         # Append to existing results
         self._append_and_save(module_info)
@@ -243,6 +251,7 @@ class ResultsLogger:
                                 "ID": item.get("ID"),
                                 "module": item.get("module"),
                                 "Clock Constraint": item.get("Clock Constraint"),
+                                "Clock Frequency [MHz]": item.get("Clock Frequency [MHz]"),
                             }
                             if verilog_path and os.path.exists(verilog_path):
                                 with open(verilog_path, 'r', encoding='utf-8', errors='ignore') as vf:
@@ -253,6 +262,7 @@ class ResultsLogger:
                                 "token_count": token_count,
                                 "llm_time [s]": llm_time,
                                 "eda_time [s]": eda_time,
+                                "Simulation": "PASS" if sim_passed else "FAIL",
                                 "Functional Verification": "PASS" if sim_passed else "FAIL"
                             })
                             break
@@ -340,6 +350,7 @@ class ResultsLogger:
 
         lut_min = None
         delay_max = None
+        clock_freq_mhz = module_info.get("Clock Frequency [MHz]")
         
         # Find constraints for this design
         if isinstance(data, dict):
@@ -349,6 +360,8 @@ class ResultsLogger:
                         if isinstance(item, dict) and item.get("ID") == module_info.get("ID"):
                             lut_min = item.get("LUTmin")
                             delay_max = item.get("DelayMax [ns]")
+                            if clock_freq_mhz is None:
+                                clock_freq_mhz = item.get("Clock Frequency [MHz]")
                             break
                 if lut_min is not None:
                     break
@@ -369,23 +382,36 @@ class ResultsLogger:
         clock_constraint = module_info.get("Clock Constraint")
         
         try:
-            if clock_constraint == "" or clock_constraint is None:
-                if delay_max is not None and delay_val is not None and float(delay_val) <= float(delay_max):
+            if clock_constraint not in ["", None]:
+                if slack_val is not None and float(slack_val) >= 0:
+                    module_info["DelayConstraint"] = "PASS"
+                else:
+                    module_info["DelayConstraint"] = "FAIL"
+            elif clock_freq_mhz is not None and delay_val is not None and float(clock_freq_mhz) > 0:
+                clock_period_ns = 1000.0 / float(clock_freq_mhz)
+                if float(delay_val) <= clock_period_ns:
                     module_info["DelayConstraint"] = "PASS"
                 else:
                     module_info["DelayConstraint"] = "FAIL"
             else:
-                if slack_val is not None and float(slack_val) >= 0:
+                if delay_max is not None and delay_val is not None and float(delay_val) <= float(delay_max):
                     module_info["DelayConstraint"] = "PASS"
                 else:
                     module_info["DelayConstraint"] = "FAIL"
         except Exception:
             module_info["DelayConstraint"] = "FAIL"
     
-    def _add_error_descriptions(self, module_info, sim_passed, synthesis_log_path, implementation_log_path):
+    def _add_error_descriptions(self, module_info, sim_passed, simulation_log_path,
+                                synthesis_log_path, implementation_log_path, simulation_error=None):
         """Add error descriptions for failed stages."""
         if not sim_passed:
             verification_errors = []
+            if simulation_error:
+                verification_errors.append(f"Simulation stage failed: {simulation_error}")
+            if simulation_log_path and os.path.exists(simulation_log_path):
+                with open(simulation_log_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+                    verification_errors += re.findall(r'^.*?(?:ERROR|FATAL).*$', content, re.MULTILINE)
             if synthesis_log_path and os.path.exists(synthesis_log_path):
                 with open(synthesis_log_path, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read()
@@ -1054,13 +1080,15 @@ def batch_parse(directory, log_severities=None):
 def log_results(llm_model, token_count, llm_time, eda_time, design_id, 
                 problems_json_path, output_json_path, power_report_path=None, 
                 utilization_report_path=None, timing_report_path=None,
-                synthesis_log_path=None, implementation_log_path=None, sim_passed=False,
-                verilog_path=None):
+                simulation_log_path=None, synthesis_log_path=None,
+                implementation_log_path=None, sim_passed=False,
+                simulation_error=None, verilog_path=None):
     """Legacy wrapper for ResultsLogger.log_results."""
     logger = ResultsLogger(problems_json_path, output_json_path)
     return logger.log_results(llm_model, token_count, llm_time, eda_time, design_id,
                               power_report_path, utilization_report_path, timing_report_path,
-                              synthesis_log_path, implementation_log_path, sim_passed, verilog_path)
+                              simulation_log_path, synthesis_log_path, implementation_log_path,
+                              sim_passed, simulation_error, verilog_path)
 
 
 def json_to_csv(json_path, csv_path):
