@@ -93,24 +93,33 @@ class ResBenchPipeline:
             if not prompt_file:
                 print(f"Failed to load design ID {self.args.design_id}")
                 return 0
-            
+
             if self.args.verbose:
                 print("\n=== Generating Verilog Design ===")
-            self._generate_design(prompt_file)
+            try:
+                self._generate_design(prompt_file)
+            except Exception as e:
+                self.pipeline_error_stage = "generation"
+                self.pipeline_error = str(e)
+                print(f"Design generation stage failed with error: {e}")
 
             sim_passed = False
             eda_start_time = time.time()
 
-            if self.args.verbose:
-                print("\n=== Running Simulation ===")
-            try:
-                sim_passed = self._run_simulation()
-            except Exception as e:
-                # Keep the run loggable in JSON even if Vivado exits non-zero.
-                self.pipeline_error_stage = "simulation"
-                self.pipeline_error = str(e)
-                sim_passed = False
-                print(f"Simulation stage failed with error: {e}")
+            if not self.pipeline_error:
+                if self.args.verbose:
+                    print("\n=== Running Simulation ===")
+                try:
+                    sim_passed = self._run_simulation()
+                except Exception as e:
+                    # Keep the run loggable in JSON even if Vivado exits non-zero.
+                    self.pipeline_error_stage = "simulation"
+                    self.pipeline_error = str(e)
+                    sim_passed = False
+                    print(f"Simulation stage failed with error: {e}")
+            else:
+                if self.args.verbose:
+                    print("\nDesign generation failed. Skipping simulation, synthesis and implementation.")
 
             if sim_passed and not self.pipeline_error:
                 if self.args.verbose:
@@ -160,12 +169,17 @@ class ResBenchPipeline:
         """Generate Verilog design from dataset prompt."""
         with open(prompt_file, 'r') as f:
             prompt_content = f.read()
-        
-        full_prompt = f"{prompt_content}\n\n{DESIGN_PROMPT}"
+
+        full_prompt = prompt_content
+        if not self.args.no_design_prompt:
+            full_prompt = f"{prompt_content}\n\n{DESIGN_PROMPT}"
+
+        system_prompt = "" if self.args.no_system_prompt else SYSTEM_PROMPT
+
         start_time = time.time()
         content, tokens = self.llm_client.generate_content(
             prompt=full_prompt,
-            system_prompt=SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             max_tokens=self.args.max_tokens,
             temperature=self.args.temperature,
             top_p=self.args.top_p
@@ -230,13 +244,14 @@ class ResBenchPipeline:
     
     def _log_results(self, sim_passed, eda_time, pipeline_error=None):
         """Log experimental results."""
+        design_tag = self.design_name if self.design_name else f"design_{self.args.design_id}"
         power_report = os.path.join(VIVADO_REPORTS_DIR, "implementation", "power_report.txt")
         utilization_report = os.path.join(VIVADO_REPORTS_DIR, "implementation", "utilization_report.txt")
         timing_report = os.path.join(VIVADO_REPORTS_DIR, "implementation", "timing_report.txt")
-        simulation_log = os.path.join(VIVADO_LOGS_DIR, f"{self.design_name}_sim.log")
-        synthesis_log = os.path.join(VIVADO_LOGS_DIR, f"{self.design_name}_synth.log")
-        implementation_log = os.path.join(VIVADO_LOGS_DIR, f"{self.design_name}_impl.log")
-        verilog_path = os.path.join(DESIGN_FILES_DIR, f"{self.design_name}.v")
+        simulation_log = os.path.join(VIVADO_LOGS_DIR, f"{design_tag}_sim.log")
+        synthesis_log = os.path.join(VIVADO_LOGS_DIR, f"{design_tag}_synth.log")
+        implementation_log = os.path.join(VIVADO_LOGS_DIR, f"{design_tag}_impl.log")
+        verilog_path = os.path.join(DESIGN_FILES_DIR, f"{design_tag}.v")
         
         if not os.path.exists(power_report):
             power_report = None
@@ -330,6 +345,16 @@ def parse_arguments():
     
     parser.add_argument("--output_json", type=str, default="exp_results.json",
                        help="Output JSON filename for results")
+    parser.add_argument(
+        "--no_system_prompt",
+        action="store_true",
+        help="Disable SYSTEM_PROMPT for LLM generation"
+    )
+    parser.add_argument(
+        "--no_design_prompt",
+        action="store_true",
+        help="Disable appending DESIGN_PROMPT to dataset prompt"
+    )
     parser.add_argument(
         "--dataset_variant",
         type=str,

@@ -7,6 +7,10 @@ Evaluation/ResBench/Analysis/experiments/
 Evaluation/ResBench/Analysis/exp_*.json
 Evaluation/ResBench/Analysis/__pycache__
 Evaluation/ResBench/Outputs/
+Evaluation/ResBench/Analysis/Complete/
+Evaluation/ResBench/Analysis/FSM/
+Evaluation/ResBench/Analysis/ablation/
+Evaluation/Custom/Archive/
 clockInfo.txt
 tight_setup_hold_pins.txt
 Tests/Outputs/

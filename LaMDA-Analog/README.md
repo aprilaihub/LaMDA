@@ -10,7 +10,7 @@ LaMDA-Analog is an automated framework that leverages Large Language Models (LLM
 
 LaMDA-Analog addresses the challenge of analog circuit design automation by combining the natural language understanding capabilities of modern LLMs with the precision of industry-standard simulation tools. The framework automatically:
 
-1. **Reads** a user prompt and design constraints from defaults (`Evaluation/<Design>/user_prompt.txt`, `constraints.yml`) or optional shell overrides
+1. **Reads** a user prompt and design constraints from `Evaluation/<Design>/user_prompt.txt` and `constraints.yml`
 2. **Builds** an effective prompt by appending machine-readable constraint bullets to the base prompt
 3. **Generates** a PDK-agnostic Spectre netlist via the LLM
 4. **Binds** the netlist to a local technology using `config/tech_config.yml`
@@ -19,6 +19,8 @@ LaMDA-Analog addresses the challenge of analog circuit design automation by comb
 7. **Optionally sweeps** device parameters using LLM-proposed sizing points and collects a sweep CSV
 
 The current implementation targets two topologies: **CMOS inverter** and **5-transistor operational transconductance amplifier (OTA)**.
+
+For OTA, the repository also includes an **ablation-study workflow** that runs controlled prompt/binding variants across models and summarizes outcomes with explicit simulation-attempt and simulation-pass reporting.
 
 ---
 
@@ -181,7 +183,7 @@ make MODEL=deepseek/deepseek-chat TEMPERATURE=0.8 run
 
 ## 🖥 Shell Runner
 
-`run_analog.sh` is the top-level entrypoint and accepts Makefile-like generation parameters plus optional prompt overrides.
+`run_analog.sh` is the top-level entrypoint and accepts the same parameters as the Makefiles.
 
 ### Inverter flow
 
@@ -212,16 +214,90 @@ bash run_analog.sh \
   --temperature 0.8 \
   --top_p 0.95 \
   --tech_cfg config/tech_config.yml \
-  --system_prompt Evaluation/Inverter/system_prompt.md \
-  --user_prompt Evaluation/Inverter/user_prompt.txt \
   --run-sweep
 ```
 
-### Optional prompt override flags
+---
 
-- `--system_prompt <path>`: use a custom system prompt file for this run.
-- `--user_prompt <path>`: use a custom user prompt file for this run.
-- If either override is used, run/sweep folder labels include `customprompt`.
+## 🧪 OTA Ablation Workflow
+
+For OTA-only campaign experiments, use the dedicated runner:
+
+```bash
+./run_analog_ablation.sh --tag ota_ablation_v1
+```
+
+This script executes model x case x repeat combinations and writes:
+
+- `Evaluation/OTA/ota_results_YYYYMMDD/gen_runs/...`
+- `Evaluation/OTA/ota_results_YYYYMMDD/ablation_manifest.csv`
+
+Case dimensions:
+
+- `PromptPackage`: ON/OFF (system prompt + YAML constraints append)
+- `TechBinding`: ON/OFF
+- `UserPromptVariant`: normal/vague
+
+Case IDs are `C0..C7` for full 8-case matrix.
+
+See `Evaluation/OTA/ABLATION_SUMMARY.md` for exact case definitions.
+
+---
+
+## 📈 OTA Summarization
+
+Run the manifest-aware summarizer:
+
+```bash
+python Evaluation/OTA/summarize_gen_runs.py
+```
+
+Typical explicit output command:
+
+```bash
+python Evaluation/OTA/summarize_gen_runs.py \
+  --root . \
+  --out_csv Evaluation/OTA/ota_results_20260916/LaMDA_Analog_exp_data_gen_runs.csv \
+  --out_summary_csv Evaluation/OTA/ota_results_20260916/LaMDA_Analog_exp_summary.csv
+```
+
+Windows/PowerShell note: quote paths containing spaces.
+
+The summarizer:
+
+- Uses `ablation_manifest.csv` as source of planned runs.
+- Includes failed/missing-summary runs in output.
+- Computes spec pass/fail from `summary_ota.json` metrics when available.
+- Splits simulation state into:
+  - `Netlist simulated?`: Spectre was invoked (attempted)
+  - `Simulation passed?`: Spectre log indicates clean completion
+
+Summary CSV columns include:
+
+- `Summary found rate (% of runs)`
+- `Simulation attempted rate (%)`
+- `Simulation pass rate (% of attempted)`
+
+---
+
+## 🧩 Merged Gain-Only Ablation Dataset
+
+To build the merged gain-only OTA dataset used for cross-date ablation analysis:
+
+```bash
+python Evaluation/OTA/build_full_ablation_gain_only.py
+```
+
+This creates:
+
+- `Evaluation/OTA/ota_results_20260916/LaMDA_Analog_exp_data_gen_runs_full_ablation_gain_only.csv`
+
+Build rule:
+
+- Structure follows `LaMDA_Analog_exp_data_gen_runs.csv`.
+- `C0` and `C4` are replaced from `Evaluation/OTA/ota_results_20260819/LLM_Comparisons_OTA.csv`.
+- Other cases (`C1,C2,C3,C5,C6,C7`) come from 20260916 run data.
+- For legacy rows, empty `Result` is interpreted as simulation not passed.
 
 ---
 
@@ -237,7 +313,7 @@ flowchart TD
     G --> H["📊 Parse PSF Results\npsf_parser.py"]:::parse
     H --> I["📄 Summary JSON\n+ Chat Log"]:::output
     G -.->|"--run-sweep"| J["🔁 Parameter Sweep\nsweep_generic / sweep_ota"]:::sweep
-    J --> K["📈 Sweep CSV\n(+ optional LLM recommendation)"]:::sweep
+    J --> K["📈 Sweep CSV\n+ LLM Recommendation"]:::sweep
 
     classDef input   fill:#dbeafe,stroke:#2563eb,color:#1e3a5f
     classDef proc    fill:#ede9fe,stroke:#7c3aed,color:#1e1b4b
@@ -294,9 +370,14 @@ LaMDA-Analog/
     └── OTA/                           # 5T OTA topology
         ├── Run.py                     # OTAPipeline class (end-to-end flow)
         ├── Makefile                   # OTA runner
+      ├── summarize_gen_runs.py      # Manifest-aware OTA ablation summarizer
+      ├── build_full_ablation_gain_only.py  # Gain-only merged ablation dataset builder
+      ├── ABLATION_SUMMARY.md        # OTA ablation case definitions and semantics
         ├── constraints.yml            # Design constraints and LLM guidance
         ├── user_prompt.txt            # Base user prompt
+      ├── user_prompt_vague.txt      # Alternate vague user prompt for ablation
         ├── system_prompt.md           # System prompt for OTA netlist generation
+      ├── system_prompt_empty.md     # Empty system prompt artifact (PromptPackage OFF)
         ├── example_prompt.txt         # Example prompt for reference
         └── output/                    # Generated runs and sweep results (gitignored)
 ```
@@ -309,22 +390,23 @@ All artifacts are written under `Evaluation/<Design>/output/`:
 
 | Path | Contents |
 |------|----------|
-| `output/gen_runs/<RUN_NAME>/llm_raw_<RUN_NAME>.scs` | Raw PDK-agnostic deck from LLM |
-| `output/gen_runs/<RUN_NAME>/inverter_netlist_<RUN_NAME>.scs` | Technology-bound inverter netlist |
-| `output/gen_runs/<RUN_NAME>/ota_netlist_<RUN_NAME>.scs` | Technology-bound OTA netlist |
-| `output/gen_runs/<RUN_NAME>/quick*.log` | Spectre simulation log |
-| `output/gen_runs/<RUN_NAME>/quick*_psf/` | Raw PSF output directory |
-| `output/gen_runs/<RUN_NAME>/summary_<design>.json` | Extracted metrics and run metadata |
-| `output/gen_runs/<RUN_NAME>/chat*.jsonl` | Prompt/effective prompt chat logs |
-| `output/sweep_results/<SWEEP_RUN_NAME>/summary.csv` | Inverter sweep results table |
-| `output/sweep_results/<SWEEP_RUN_NAME>/summary.llm.json` | Inverter sweep results in LLM-readable JSON (via `report_parser.py`) |
-| `output/sweep_results/<SWEEP_RUN_NAME>/summary_ota.csv` | OTA sweep results table |
-| `output/sweep_results/<SWEEP_RUN_NAME>/summary_ota_bode.csv` | OTA Bode curve summary |
+| `output/gen_runs/<RUN_ID>/llm_raw_<RUN_ID>.scs` | Raw PDK-agnostic deck from LLM |
+| `output/gen_runs/<RUN_ID>/inverter_netlist_<RUN_ID>.scs` | Technology-bound inverter netlist |
+| `output/gen_runs/<RUN_ID>/ota_netlist_<RUN_ID>.scs` | Technology-bound OTA netlist |
+| `output/gen_runs/<RUN_ID>/quick*.log` | Spectre simulation log |
+| `output/gen_runs/<RUN_ID>/quick*_psf/` | Raw PSF output directory |
+| `output/gen_runs/<RUN_ID>/summary_<design>.json` | Extracted metrics and run metadata |
+| `output/gen_runs/<RUN_ID>/chat.jsonl` | Full prompt/response chat log |
+| `output/sweep_results/<timestamp>/summary.csv` | Parameter sweep results table |
+| `output/sweep_results/<timestamp>/summary.llm.json` | Sweep results in LLM-readable format |
 
-Naming notes:
+OTA ablation campaigns additionally write date-scoped outputs under:
 
-- `<RUN_NAME>` follows `YYYYMMDD_HHMMSS_<design>_<model>[_customprompt]`.
-- `<SWEEP_RUN_NAME>` follows `YYYYMMDD_HHMMSS_<design>_<model>[_customprompt]_sweep`.
+- `Evaluation/OTA/ota_results_YYYYMMDD/ablation_manifest.csv`
+- `Evaluation/OTA/ota_results_YYYYMMDD/gen_runs/<RUN_ID>/...`
+- `Evaluation/OTA/ota_results_YYYYMMDD/LaMDA_Analog_exp_data_gen_runs.csv`
+- `Evaluation/OTA/ota_results_YYYYMMDD/LaMDA_Analog_exp_summary.csv`
+- `Evaluation/OTA/ota_results_YYYYMMDD/LaMDA_Analog_exp_data_gen_runs_full_ablation_gain_only.csv`
 
 ---
 

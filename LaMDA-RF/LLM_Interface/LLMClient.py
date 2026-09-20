@@ -29,6 +29,7 @@ class LLMClient:
 
     def _resolve_provider(self):
         """Resolve provider from explicit override or model naming policy."""
+        model_lower = self.model_name.lower()
         provider_override = os.getenv("LLM_PROVIDER", "").strip().lower()
         if provider_override:
             if provider_override == "openrouter":
@@ -39,9 +40,6 @@ class LLMClient:
                 "Unsupported LLM_PROVIDER. Use one of: openai, openrouter, default, custom."
             )
 
-        model_lower = self.model_name.lower()
-        if model_lower.startswith("o1"):
-            return "openrouter"
         if self._is_openai_family_model():
             return "openai"
         return "openrouter"
@@ -58,13 +56,14 @@ class LLMClient:
                 )
             base_url = os.getenv("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1")
         else:
-            api_key = os.getenv("OPENAI_API_KEY")
+            api_key = os.getenv("LLM_API_KEY")
             if api_key is None:
                 raise ValueError(
-                    "OPENAI_API_KEY not found. Please set it in your .env file."
+                    "LLM_API_KEY not found. Please set it in your .env file."
                 )
-            base_url = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+            base_url = os.getenv("LLM_BASE_URL", "https://elm.edina.ac.uk/api/v1")
 
+        print(f"[LLMClient] Model: {self.model_name} | Provider: {provider} | Endpoint: {base_url}")
         return OpenAI(base_url=base_url, api_key=api_key)
 
     def generate_content(self, messages, temperature=1.0, top_p=1.0):

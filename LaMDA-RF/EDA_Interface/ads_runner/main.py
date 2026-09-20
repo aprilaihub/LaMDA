@@ -5,7 +5,7 @@ Executed inside the ADS Python virtual environment (ads2026_venv).
 Usage (called by ADSInterface.run_ads via subprocess):
     python main.py <netlist_path> <design_type> <target_freq_hz> [target_freq_hz_2]
 
-    design_type: 1=antenna, 2=coupler, 3=filter, 0=unknown
+    design_type: 1=antenna, 2=coupler, 3=filter, 4=matching_network, 0=unknown
 """
 
 import glob
@@ -198,24 +198,79 @@ def coupler_helper(simulation_data, target_freq_hz):
 # filter_helper
 # ---------------------------------------------------------------------------
 
-def filter_helper(simulation_data, target_freq_hz, target_freq_hz_2=None):
-    """Extract filter metrics (S11/S21) at one or two target frequencies."""
+def filter_helper(simulation_data, target_freq_hz, target_freq_hz_2=None, is_bandpass=False):
+    """Extract filter metrics (S11/S21) at one or two target frequencies.
+
+    When is_bandpass=True and target_freq_hz_2 is provided, the two frequencies
+    are treated as passband edges: band-wide worst-case S11/S21 in the passband
+    and worst-case S21 outside the passband are reported.
+    Otherwise, the original single/dual spot-check behaviour is preserved.
+    """
     if simulation_data is None or simulation_data.empty or simulation_data.shape[1] < 2:
         return None
 
-    idx = (simulation_data.iloc[:, 0] - target_freq_hz).abs().idxmin()
-    freq_at_target = float(simulation_data.iloc[idx, 0])
+    has_s21 = simulation_data.shape[1] > 3
+    freq_col = simulation_data.iloc[:, 0]
+
+    # --- Band-pass filter mode ---
+    if is_bandpass and target_freq_hz_2 is not None:
+        pb_low_hz  = min(target_freq_hz, target_freq_hz_2)
+        pb_high_hz = max(target_freq_hz, target_freq_hz_2)
+        center_hz  = (pb_low_hz + pb_high_hz) / 2
+
+        idx_center   = (freq_col - center_hz).abs().idxmin()
+        freq_center  = float(freq_col.iloc[idx_center])
+        s11_center   = round(float(simulation_data.iloc[idx_center, 1]), 1)
+
+        band_mask    = (freq_col >= pb_low_hz) & (freq_col <= pb_high_hz)
+        sb_mask      = ~band_mask
+        s11_worst_pb = round(float(simulation_data.iloc[:, 1][band_mask].max()), 1)
+
+        if has_s21:
+            s21_col      = simulation_data.iloc[:, 3]
+            s21_center   = round(float(s21_col.iloc[idx_center]), 1)
+            s21_worst_pb = round(float(s21_col[band_mask].max()), 1)
+            s21_worst_sb = round(float(s21_col[sb_mask].max()), 1) if sb_mask.any() else None
+            sb_str = f", S21 worst outside passband = {s21_worst_sb} dB" if s21_worst_sb is not None else ""
+            summary = (
+                f"BPF metrics — passband {_format_frequency(pb_low_hz)} to {_format_frequency(pb_high_hz)}: "
+                f"S11 at centre = {s11_center} dB (worst in band = {s11_worst_pb} dB), "
+                f"S21 at centre = {s21_center} dB (worst in band = {s21_worst_pb} dB)"
+                f"{sb_str}"
+            )
+        else:
+            s21_center = s21_worst_pb = s21_worst_sb = None
+            summary = (
+                f"BPF metrics — passband {_format_frequency(pb_low_hz)} to {_format_frequency(pb_high_hz)}: "
+                f"S11 at centre = {s11_center} dB (worst in band = {s11_worst_pb} dB)"
+            )
+
+        return {
+            "freq_at_target": freq_center,
+            "s11_at_target_db": s11_center,
+            "s11_worst_pb_db": s11_worst_pb,
+            "s21_at_target_db": s21_center,
+            "s21_worst_pb_db": s21_worst_pb,
+            "s21_worst_sb_db": s21_worst_sb,
+            "freq_2_at_target": None,
+            "s21_at_target_2_db": None,
+            "summary": summary,
+        }
+
+    # --- Original single/dual spot-check mode (LPF / HPF) ---
+    idx = (freq_col - target_freq_hz).abs().idxmin()
+    freq_at_target   = float(freq_col.iloc[idx])
     s11_at_target_db = round(float(simulation_data.iloc[idx, 1]), 1)
 
     s21_at_target_db = None
     freq_2_at_target = None
     s21_at_target_2_db = None
 
-    if simulation_data.shape[1] > 3:
+    if has_s21:
         s21_at_target_db = round(float(simulation_data.iloc[idx, 3]), 1)
         if target_freq_hz_2 is not None:
-            idx_2 = (simulation_data.iloc[:, 0] - target_freq_hz_2).abs().idxmin()
-            freq_2_at_target = float(simulation_data.iloc[idx_2, 0])
+            idx_2 = (freq_col - target_freq_hz_2).abs().idxmin()
+            freq_2_at_target = float(freq_col.iloc[idx_2])
             s21_at_target_2_db = round(float(simulation_data.iloc[idx_2, 3]), 1)
 
     if s21_at_target_db is not None and s21_at_target_2_db is not None:
@@ -241,6 +296,42 @@ def filter_helper(simulation_data, target_freq_hz, target_freq_hz_2=None):
         "s21_at_target_db": s21_at_target_db,
         "freq_2_at_target": freq_2_at_target,
         "s21_at_target_2_db": s21_at_target_2_db,
+        "summary": summary,
+    }
+
+
+# ---------------------------------------------------------------------------
+# matching_network_helper
+# ---------------------------------------------------------------------------
+
+def matching_network_helper(simulation_data, target_freq_hz):
+    """Extract matching network metrics (S11 and S21) at the target frequency."""
+    if simulation_data is None or simulation_data.empty or simulation_data.shape[1] < 2:
+        return None
+
+    freq_col = simulation_data.iloc[:, 0]
+    idx = (freq_col - target_freq_hz).abs().idxmin()
+    freq_at_target = float(freq_col.iloc[idx])
+    s11_at_target_db = round(float(simulation_data.iloc[idx, 1]), 1)
+
+    has_s21 = simulation_data.shape[1] > 3
+    s21_at_target_db = round(float(simulation_data.iloc[idx, 3]), 1) if has_s21 else None
+
+    if s21_at_target_db is not None:
+        summary = (
+            f"Matching network at {_format_frequency(freq_at_target)}: "
+            f"S11 = {s11_at_target_db} dB, S21 = {s21_at_target_db} dB."
+        )
+    else:
+        summary = (
+            f"Matching network at {_format_frequency(freq_at_target)}: "
+            f"S11 = {s11_at_target_db} dB."
+        )
+
+    return {
+        "freq_at_target": freq_at_target,
+        "s11_at_target_db": s11_at_target_db,
+        "s21_at_target_db": s21_at_target_db,
         "summary": summary,
     }
 
@@ -392,9 +483,11 @@ if __name__ == "__main__":
         target_freq_hz = 2.4e9
 
     try:
-        target_freq_hz_2 = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else 5e9
+        target_freq_hz_2 = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else None
     except ValueError:
-        target_freq_hz_2 = 5e9
+        target_freq_hz_2 = None
+
+    is_bandpass = len(sys.argv) > 5 and sys.argv[5].lower() in ("1", "true", "yes")
 
     # --- Workspace / cell naming ---
     workspace_name = "my_workspace_1"
@@ -428,6 +521,7 @@ if __name__ == "__main__":
         1: ["S[1,1]"],
         2: ["S[1,1]", "S[2,1]", "S[3,1]", "S[4,1]"],
         3: ["S[1,1]", "S[2,1]"],
+        4: ["S[1,1]", "S[2,1]"],
     }
     selected_sparams = plot_sparams_by_design_type.get(design_type)
 
@@ -439,13 +533,15 @@ if __name__ == "__main__":
     )
 
     # --- Post-processing ---
-    antenna_results = coupler_results = filter_results = None
+    antenna_results = coupler_results = filter_results = matching_network_results = None
     if design_type == 1:
         antenna_results = antenna_helper(simulation_data, target_freq_hz)
     elif design_type == 2:
         coupler_results = coupler_helper(simulation_data, target_freq_hz)
     elif design_type == 3:
-        filter_results = filter_helper(simulation_data, target_freq_hz, target_freq_hz_2)
+        filter_results = filter_helper(simulation_data, target_freq_hz, target_freq_hz_2, is_bandpass=is_bandpass)
+    elif design_type == 4:
+        matching_network_results = matching_network_helper(simulation_data, target_freq_hz)
 
     elapsed_time = time.time() - start_time
     print("\n--- Simulation Time ---")
@@ -458,4 +554,6 @@ if __name__ == "__main__":
         print(coupler_results["summary"])
     if filter_results:
         print(filter_results["summary"])
+    if matching_network_results:
+        print(matching_network_results["summary"])
     print("-----------------------\n")

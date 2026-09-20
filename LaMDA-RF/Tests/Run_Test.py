@@ -18,9 +18,7 @@ from LLM_Interface.requirements_utils import (
     extract_second_frequency_hz,
     extract_requirements,
 )
-from LLM_Interface.library_selector_utils import select_libraries, load_selected_libraries
 from utils import (
-    SYSTEM_PROMPT,
     create_outputs_folder,
     clear_previous_run_folders,
     extract_netlist_block,
@@ -71,19 +69,29 @@ def run_test(args):
 
     print(f"Design type: {design_type}  Freq: {target_freq_hz} Hz\n")
 
-    # Library selection
-    selected_libs = select_libraries(user_input, llm, args.model)
-    print(f"Selected libraries: {', '.join(selected_libs)}")
+    ads_book_dir = os.path.join(DATA_DIR, "ADS-Book")
 
-    with open(os.path.join(DATA_DIR, "ADS-Book", "Netlist.txt"), "r", encoding="utf-8") as f:
-        netlist_example = f.read()
+    with open(os.path.join(ads_book_dir, "keysight-ads-de.txt"), "r", encoding="utf-8") as f:
+        keysight_ads_de = f.read()
 
-    library_content = load_selected_libraries(selected_libs, DATA_DIR)
+    with open(os.path.join(ads_book_dir, "libraries_and_components.txt"), "r", encoding="utf-8") as f:
+        libraries_and_components = f.read()
+
+    with open(os.path.join(ads_book_dir, "Netlist.txt"), "r", encoding="utf-8") as f:
+        netlist = f.read()
 
     system_prompt = (
-        SYSTEM_PROMPT
-        + f"\n\nLibraries:\n\n{library_content}"
-        + f"\n\nExample netlist:\n\n{netlist_example}"
+        "You are an expert in Python coding and Keysight ADS."
+        "Always be precise on syntax and semantics."
+        "You are an expert on Python script using Keysight's ADS Design Environment (DE) Python API"
+        f"This is information regarding ADS Design Environment scripting:\n\n{keysight_ads_de}"
+        f"This is information regarding libraries, components and simulators:\n\n{libraries_and_components}"
+        f"It is expected that you generate a netlist like this:\n\n{netlist}"
+        "Do not use new line characters in netlist blocks."
+        "Keep the netlist elements on a single line."
+        "For FR-4 substrate, use the following: model Sub1 MSUB H=1.6 mm Er=4.4 Mur=1 Cond=5.8e7 Hu=1e+33 mm T=0 mm TanD=0.02 Rough=0 Name=Sub1"
+        "For an antenna patch, use MLOC component."
+        "Consider manufacturing tolerances and practical implementation aspects in your designs."
     )
 
     messages = [

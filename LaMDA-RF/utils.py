@@ -9,28 +9,6 @@ import shutil
 
 
 # ---------------------------------------------------------------------------
-# Prompt templates
-# ---------------------------------------------------------------------------
-
-SYSTEM_PROMPT = (
-    "Always be precise on syntax and semantics. "
-    "You are an expert on Python script using Keysight's ADS Design Environment (DE) Python API. "
-    #"Respond with a netlist similar to the example provided, using only the components and syntax supported by ADS. "
-    "Do not use new line characters in netlist blocks. "
-    "Do not write comments in the netlist. "
-    #"Do not include any notes or explanations in your responses. "
-    "Keep the netlist elements on a single line. "
-    "For FR-4 substrate, use: "
-    "model Sub1 MSUB H=1.6 mm Er=4.4 Mur=1 Cond=5.8e7 Hu=1e+33 mm T=0 mm TanD=0.02 Rough=0 Name=Sub1. "
-    "For Rogers RO4350B substrate, use: "
-    "model Sub1 MSUB H=1.524 mm Er=3.48 Mur=1 Cond=5.8e7 Hu=1e+33 mm T=0.035 mm TanD=0.00372 Rough=0 Name=Sub1. "
-    "For substrate definition in components, use Subst=\"Sub1\". "
-    "For an antenna patch, use MLOC component. "
-    "Consider manufacturing tolerances and practical implementation aspects in your designs."
-)
-
-
-# ---------------------------------------------------------------------------
 # Folder utilities
 # ---------------------------------------------------------------------------
 
@@ -74,6 +52,7 @@ def extract_netlist_block(text):
         return text
 
     start_token_plaintext = "```plaintext"
+    start_token_netlist = "```netlist"
     start_token_generic = "```"
     end_token = "```"
 
@@ -81,10 +60,14 @@ def extract_netlist_block(text):
     if start_index != -1:
         start_index += len(start_token_plaintext)
     else:
-        start_index = text.find(start_token_generic)
-        if start_index == -1:
-            return text
-        start_index += len(start_token_generic)
+        start_index = text.find(start_token_netlist)
+        if start_index != -1:
+            start_index += len(start_token_netlist)
+        else:
+            start_index = text.find(start_token_generic)
+            if start_index == -1:
+                return text
+            start_index += len(start_token_generic)
 
     end_index = text.find(end_token, start_index)
     if end_index == -1:

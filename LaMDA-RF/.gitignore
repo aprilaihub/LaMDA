@@ -1,6 +1,10 @@
 # ADS book data
 Data/ADS-Book/libraries
 Data/ADS-Book/Netlist.txt
+Data/ADS-Book/Design_Elements_info.txt
+Data/ADS-Book/keysight-ads-de.txt
+Data/ADS-Book/libraries_and_components.txt
+Data/example_prompts.txt
 
 # Environment
 .env
@@ -10,7 +14,7 @@ venv/
 __pycache__/
 *.pyc
 *.pyo
-run_batch.ps1
+LLMClient_working.py
 
 # Outputs
 NetlistFiles/
@@ -18,8 +22,14 @@ LLM_Responses/
 LLM_Feedback/
 Outputs/
 ADS_Workspaces/
-csv_process.py
+runs/
+ProcessingFiles/
 
 # ADS generated binaries
 de_sim.cfg
 hpeesofsim.cfg
+
+# Ablation study files
+ABLATION_AUTOMATION.md
+Ablation_Study_Summary.csv
+build_ablation_summary.py

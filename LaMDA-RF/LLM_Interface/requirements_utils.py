@@ -36,6 +36,14 @@ FOR_FREQUENCIES_PATTERN = re.compile(
     re.IGNORECASE,
 )
 AT_PATTERN = re.compile(r'at\s*' + FREQ_PATTERN, re.IGNORECASE)
+FROM_TO_PATTERN = re.compile(
+    r'from\s+' + FREQ_PATTERN + r'\s+to\s+' + FREQ_PATTERN,
+    re.IGNORECASE,
+)
+OUTSIDE_PASSBAND_PATTERN = re.compile(
+    r'outside\s+(?:the\s+)?(?:passband|band|range|this\s+range)',
+    re.IGNORECASE,
+)
 BARE_FREQ_PATTERN = re.compile(FREQ_PATTERN, re.IGNORECASE)
 LEGACY_S11_PATTERN = re.compile(
     r'S11\s*(?:below|above|less than|greater than|[<>=]+)\s*-?\d+\.?\d*\s*dB',
@@ -45,7 +53,7 @@ LEGACY_OPERATOR_PATTERN = re.compile(r'below|above|less\s+than|greater\s+than', 
 
 
 def extract_design_type(user_request):
-    """Return design type from prompt text: antenna=1, coupler=2, filter=3, unknown=0."""
+    """Return design type from prompt text: antenna=1, coupler=2, filter=3, matching_network=4, unknown=0."""
     request_lower = user_request.lower()
     if "antenna" in request_lower:
         return 1
@@ -53,6 +61,8 @@ def extract_design_type(user_request):
         return 2
     if "filter" in request_lower:
         return 3
+    if "matching network" in request_lower or "matching-network" in request_lower:
+        return 4
     return 0
 
 
@@ -89,7 +99,9 @@ def extract_requirements(user_request):
         operator = _normalize_operator(match.group(2))
         value_db = match.group(3)
         clause_tail = match.group(4)
-        freq_suffix = _extract_frequency_suffix(clause_tail)
+        freq_suffix = _extract_frequency_suffix(clause_tail, user_request)
+        if not freq_suffix:
+            freq_suffix = _extract_preceding_frequency(user_request, match.start())
         requirement_clauses.append(f"{parameter} {operator} {value_db} dB{freq_suffix}")
 
     if requirement_clauses:
@@ -124,11 +136,34 @@ def _normalize_operator(op):
     return OPERATOR_MAP.get(op_clean, op_clean)
 
 
-def _extract_frequency_suffix(clause_tail):
+def _extract_preceding_frequency(text, pos):
+    """Look backwards from pos (up to the previous clause boundary) for a frequency qualifier."""
+    comma_pos = text.rfind(',', 0, pos)
+    semi_pos = text.rfind(';', 0, pos)
+    clause_start = max(comma_pos, semi_pos)
+    clause_start = 0 if clause_start == -1 else clause_start + 1
+    preceding = text[clause_start:pos]
+    from_to_match = FROM_TO_PATTERN.search(preceding)
+    if from_to_match:
+        return (f" from {from_to_match.group(1)} {from_to_match.group(2)}"
+                f" to {from_to_match.group(3)} {from_to_match.group(4)}")
+    at_match = AT_PATTERN.search(preceding)
+    if at_match:
+        return f" at {at_match.group(1)} {at_match.group(2)}"
+    return ""
+
+
+def _extract_frequency_suffix(clause_tail, full_text=None):
     for_match = FOR_FREQUENCIES_PATTERN.search(clause_tail)
     if for_match:
         op = _normalize_operator(for_match.group(1))
         return f" for frequencies {op} {for_match.group(2)} {for_match.group(3)}"
+    if OUTSIDE_PASSBAND_PATTERN.search(clause_tail) and full_text is not None:
+        from_to_match = FROM_TO_PATTERN.search(full_text)
+        if from_to_match:
+            return (f" outside passband"
+                    f" ({from_to_match.group(1)} {from_to_match.group(2)}"
+                    f" - {from_to_match.group(3)} {from_to_match.group(4)})")
     at_match = AT_PATTERN.search(clause_tail)
     if at_match:
         return f" at {at_match.group(1)} {at_match.group(2)}"

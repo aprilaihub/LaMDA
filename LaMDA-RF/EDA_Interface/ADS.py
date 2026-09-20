@@ -44,6 +44,7 @@ class ADSInterface:
         design_type=0,
         target_freq_hz=2.4e9,
         target_freq_hz_2=None,
+        is_bandpass=False,
         cell_name="first_cell",
         project_root=None,
         verbose=False,
@@ -54,7 +55,7 @@ class ADSInterface:
         Args:
             netlist_path (str): Full path to the netlist file.
             netlist_index (int): Index of the current netlist (used for log naming).
-            design_type (int): 1=antenna, 2=coupler, 3=filter, 0=unknown.
+            design_type (int): 1=antenna, 2=coupler, 3=filter, 4=matching_network, 0=unknown.
             target_freq_hz (float): Primary target frequency in Hz.
             target_freq_hz_2 (float|None): Optional second target frequency in Hz.
             cell_name (str): ADS cell name for the schematic.
@@ -87,6 +88,7 @@ class ADSInterface:
             str(design_type),
             str(target_freq_hz),
             str(target_freq_hz_2) if target_freq_hz_2 is not None else "",
+            "1" if is_bandpass else "0",
         ]
 
         if verbose:
@@ -109,7 +111,7 @@ class ADSInterface:
                     env=env,
                     check=False,
                 )
-            with open(output_log, "r", encoding="utf-8") as f:
+            with open(output_log, "r", encoding="utf-8", errors="replace") as f:
                 output = f.read()
 
         except subprocess.TimeoutExpired:

@@ -4,6 +4,7 @@ Shared functions and constants used across testing and evaluation pipelines.
 """
 
 import os
+import re
 import time
 import tempfile
 
@@ -143,10 +144,23 @@ def extract_design_info(chat_filename, design_name_marker='// Start Design name'
     """
     design_name = None
     with open(chat_filename, 'r') as f:
-        lines = f.readlines()
+        content = f.read()
+
+    lines = content.splitlines()
     for i, line in enumerate(lines):
         if design_name_marker in line and i + 1 < len(lines):
             design_name = lines[i + 1].strip()
+
+    if design_name is None:
+        # Fallback: infer design name from first Verilog module declaration.
+        module_match = re.search(
+            r"^\s*module\s+([A-Za-z_][A-Za-z0-9_$]*)\s*(?:#|\()",
+            content,
+            flags=re.MULTILINE,
+        )
+        if module_match:
+            design_name = module_match.group(1)
+
     if design_name is None:
         raise ValueError("Could not find design name.")
     return design_name

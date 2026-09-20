@@ -18,6 +18,13 @@ config/tech_config.yml
 Evaluation/Inverter/output/
 Evaluation/OTA/output/
 Evaluation/OTA/user_prompt_vague.txt
+Evaluation/OTA/ota_results_20260819/
+Evaluation/OTA/ota_results_20260819.zip
+Evaluation/OTA/ota_results_20260916/
+Evaluation/OTA/ABLATION_SUMMARY.md
+Evaluation/OTA/build_full_ablation_gain_only.py
+Evaluation/OTA/summarize_gen_runs.py
+
 
 # Notebook and editor artifacts
 .ipynb_checkpoints/

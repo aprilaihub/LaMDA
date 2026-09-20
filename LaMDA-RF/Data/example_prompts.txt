@@ -1,7 +1,61 @@
-Give me a netlist of a microstrip patch antenna on FR-4 operating at 2.4GHz with S11 below -10dB.
+**Antennas**
 
-Provide a netlist of a microstrip low-pass filter on an FR-4 substrate and such that S11 below −10 dB and S21 is −3 dB at 2.4 GHz, and S21 below −40 dB for frequencies above 3.5 GHz.
+Tested prompt: Give me a netlist of a microstrip patch antenna on FR-4 operating at 2.4GHz with S11 below -10dB.
 
-Provide a netlist of a 50 Ω microstrip high-pass filter on an FR-4 substrate and such that S21 is −3 dB at 2.4 GHz, S11 below −10 dB at 2.4 GHz, and S21 below −40 dB for frequencies above 3.5 GHz, assuming a 50 Ω source and load.
+1. Provide a netlist of a microstrip patch antenna on a Rogers RO4350B substrate operating at 5.5 GHz with S11 below -10dB.
+(WLAN - gain greater than 5dBi)
+2. Provide a netlist of a microstrip plannar antenna on an FR-4 substrate operating at 1.8 GHz with S11 below -10dB.
+(LTE antenna - gain greater than 2dBi)
+3. Provide a netlist of a compact microstrip antenna on an FR-4 substrate operating at 915 MHz with S11 below -10dB.
+(IoT antenna - dimensions minimised)
+4. Provide a netlist of a printed monopole antenna on an FR-4 substrate operating at 2.45 GHz with S11 below -10dB.
+(Printed monopole for Bluetooth/Wi-Fi - radiation pattern omnidirectional)
+5. Provide a netlist of a microstrip patch antenna on a Rogers RO4350B substrate operating at 10 GHz such that S11 is below −15 dB.
+(X-band patch antenna (radar, automotive, satellite) - gain is greater than 6 dBi.)
+---------------------------------------------------------------
 
-Provide a netlist of a microstrip directional coupler on FR-4 such that at 2.4 GHz S21 is above −1 dB, S31 is −10 dB, S41 is below −20 dB and S11 below −10 dB.
+**Filters**
+
+LPF:
+1. Provide a netlist of a microstrip low-pass filter on an FR-4 substrate and such that at 2 GHz S11 is below −10 dB and S21 is −3 dB, and S21 below −20 dB for frequencies above 3 GHz.
+(Low-cost consumer RF filter, 2 GHz ± 200 MHz)
+2. Provide a netlist of a microstrip low-pass filter on an FR-4 substrate and such that at 2.4 GHz S11 is below −10 dB and S21 is −3 dB, and S21 below −40 dB for frequencies above 3.5 GHz.
+(2.4 GHz Wi-Fi / Bluetooth low-pass filter, 2.4 GHz ± 150 MHz)
+3. Provide a netlist of a microstrip low-pass filter on a Rogers RO4350B substrate such that at 5 GHz S11 is below −15 dB and S21 is −3 dB, and S21 is below −40 dB for frequencies above 7 GHz.
+(5 GHz WLAN low-pass filter, 5 GHz ± 110 MHz) 
+
+HPF:
+1. Provide a netlist of a microstrip high-pass filter on an FR-4 substrate such that at 2.4 GHz S11 is below −10 dB and S21 is −3 dB, and S21 is below −25 dB for frequencies below 1.6 GHz.
+(Compact IoT RF high-pass filter, 2.4 GHz ± 200 MHz)
+2. Provide a netlist of a microstrip high-pass filter on a Rogers RO4350B substrate such that at 3 GHz S11 is below −12 dB and S21 is −3 dB, and S21 is below −30 dB for frequencies below 2 GHz.
+(UWB-style high-pass filter, 3 GHz )
+3. Provide a netlist of a microstrip high-pass filter on a Rogers RO4350B substrate such that at 4.8 GHz S11 is below −15 dB and S21 is −3 dB, and S21 is below −35 dB for frequencies below 3.5 GHz.
+(5 GHz WLAN high-pass filter, 4.8 GHz ± 100 MHz)
+
+BPF:
+1. Provide a netlist of a microstrip band-pass filter on an FR-4 substrate such that in the passband from 2.3 GHz to 2.6 GHz S11 is below −10 dB and S21 is above −3 dB, and S21 is below −25 dB outside the passband.
+(2.4 GHz Wi-Fi band-pass filter)
+2. Provide a netlist of a microstrip band-pass filter on a Rogers RO4350B substrate such that in the passband from 5.1 GHz to 5.8 GHz S11 is below −15 dB and S21 is above −2 dB, and S21 is below −35 dB outside the passband.
+(5 GHz WLAN band-pass filter)
+---------------------------------------------------------------- 
+
+Couplers
+
+1. Provide a netlist of a microstrip directional coupler on FR-4 substrate operating at 2.4 GHz such that S11 is below −10 dB, S31 is −10 dB, and S41 is below −20 dB.
+(S31 is −10 dB ± 1 dB)
+2. Provide a netlist of a microstrip quadrature hybrid coupler on a Rogers RO4350B substrate operating at 6 GHz such that S11 is below −15 dB, S21 is -3 dB, S31 is −3 dB, and S41 is below −20 dB.
+(S21 and S31 are −3 dB ± 0.5 dB)
+3. Provide a design of a microstrip Wilkinson power divider (coupler) on an FR-4 substrate operating at 2.45 GHz such that S11 is below −10 dB, S21 is -3 dB, S31 is −3 dB, and S23 is below −20 dB.
+(S21 and S31 are −3 dB ± 0.5 dB)
+4. Provide a design of a microstrip directional coupler on a Rogers RO4350B substrate operating at 10 GHz such that S11 is below −15 dB, S31 is −10 dB, and S41 is below −25 dB.
+(X-band directional coupler, S31 is −10 dB ± 1 dB)
+
+backup: Provide a design of a microstrip directional coupler on a Rogers RO4350B substrate operating at 5.5 GHz such that S11 is below −15 dB, S31 is −15 dB, and S41 is below −25 dB.
+(5 GHz WLAN directional coupler, S31 is −15 dB ± 1 dB)
+
+---------------------------------------------------------------- 
+
+Matching network
+
+1. Provide a design of a microstrip matching network on an FR-4 substrate operating at 2.4 GHz such that S11 is below −20 dB and S21 is above -1 dB.
+2. Provide a design of a microstrip matching network on a Rogers RO4350B substrate operating at 5.8 GHz such that S11 is below −20 dB and S21 is above −0.5 dB.

@@ -9,6 +9,9 @@ param(
     [float] $Temperature = 1.0,
     [float] $TopP        = 1.0,
     [int]   $Iterations  = 5,
+    [string]$PromptFile  = "prompt.txt",
+    [int]   $SystemPromptEnabled = 1,
+    [int]   $AdsBookEnabled      = 1,
     [switch]$VerboseOutput
 )
 
@@ -41,7 +44,10 @@ switch ($Command) {
             "--model", $Model,
             "--temperature", $Temperature,
             "--top_p", $TopP,
-            "--iterations", $Iterations
+            "--iterations", $Iterations,
+            "--prompt_file", $PromptFile,
+            "--system_prompt_enabled", $SystemPromptEnabled,
+            "--ads_book_enabled", $AdsBookEnabled
         )
         if ($VerboseOutput) { $pyArgs += "--verbose" }
 
@@ -81,6 +87,10 @@ switch ($Command) {
                 Move-Item -Path $src -Destination (Join-Path $dest $dir)
             }
         }
+        $promptSrc = Join-Path $ROOT_DIR "Evaluation\prompt.txt"
+        if (Test-Path $promptSrc) {
+            Copy-Item -Path $promptSrc -Destination (Join-Path $dest "prompt.txt")
+        }
         Write-Host "Outputs moved to runs\$Model\"
     }
 
@@ -102,6 +112,9 @@ switch ($Command) {
         Write-Host "  -Iterations <n>        Number of LLM iterations (default: 5)"
         Write-Host "  -Temperature <f>       Sampling temperature (default: 1.0)"
         Write-Host "  -TopP <f>              Top-p value (default: 1.0)"
+        Write-Host "  -PromptFile <path>     Prompt file path (default: prompt.txt)"
+        Write-Host "  -SystemPromptEnabled   1 enables system scaffold; 0 disables it"
+        Write-Host "  -AdsBookEnabled        1 includes ADS-book context; 0 excludes it"
         Write-Host "  -VerboseOutput         Enable verbose output"
         Write-Host ""
         Write-Host "Examples:"

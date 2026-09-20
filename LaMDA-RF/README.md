@@ -10,7 +10,7 @@ LaMDA-RF is an automated framework that leverages Large Language Models (LLMs) t
 
 LaMDA-RF addresses the challenge of RF circuit design automation by combining the natural language understanding capabilities of modern LLMs with the precision of industry-standard simulation tools. The framework automatically:
 
-1. **Reads** a natural language design request from `Evaluation/prompt.txt`
+1. **Reads** a natural language design request from `Evaluation/prompt.txt` (or an explicitly selected prompt file)
 2. **Selects** relevant ADS component libraries based on the design type
 3. **Generates** an ADS netlist from the user request and library context
 4. **Simulates** the netlist in Keysight ADS via a dedicated subprocess
@@ -28,7 +28,9 @@ LaMDA-RF addresses the challenge of RF circuit design automation by combining th
 - **Keysight ADS**: 2025 or 2026 (sets `HPEESOF_DIR` environment variable)
 - **ADS Python venv**: at `~/ads2026_venv` (or set `ADS_VENV_PYTHON`)
 - **Operating System**: Windows (tested)
-- **API Key**: for an OpenAI-compatible LLM endpoint, or an OpenRouter API key for OpenRouter-hosted models
+- **API Keys**:
+    - `LLM_API_KEY` for local/OpenAI-compatible endpoint usage (used for `gpt-4o-mini`, `gpt-4o` in this ablation setup)
+    - `OPENROUTER_API_KEY` for OpenRouter-hosted models (used for `o1`, `codestral-2508`, `deepseek-chat-v3.1`)
 
 ### Step 1: Access the Repository
 
@@ -98,10 +100,9 @@ OpenRouter option:
 OPENROUTER_API_KEY=your_openrouter_key_here
 LLM_PROVIDER=openrouter
 LLM_BASE_URL=https://openrouter.ai/api/v1
-
-# Optional: without LLM_PROVIDER, model names in provider/model format also route to OpenRouter
-# Example model: openrouter/meta-llama/llama-3.1-8b-instruct
 ```
+
+For ablation automation, provider routing is set per model by `run_ablation.ps1`.
 
 ### Step 4: Generate ADS Component Libraries and Reference Netlist
 
@@ -240,7 +241,76 @@ cd Evaluation
 - `-Iterations` — Number of design refinement iterations (default: `5`)
 - `-Temperature` — Sampling temperature (default: `1.0`)
 - `-TopP` — Top-p sampling parameter (default: `1.0`)
+- `-PromptFile` — Prompt file path (default: `prompt.txt`, resolved from `Evaluation/`)
+- `-SystemPromptEnabled` — `1` to enable system prompt scaffold, `0` to disable
+- `-AdsBookEnabled` — `1` to include ADS-book context, `0` to exclude
 - `-VerboseOutput` — Print LLM responses to console
+
+#### Reproducibility snapshots per run
+
+`Evaluation/Run.py` saves the exact prompts/config used for each run into `Outputs/`:
+
+- `effective_user_prompt.txt`
+- `effective_system_prompt.txt`
+- `run_config.txt`
+
+These are archived with each run and allow prompt-level reproducibility.
+
+---
+
+### Ablation Batch Script (Antenna)
+
+Located at the project root: `run_ablation.ps1`.
+
+This script automates the reduced antenna ablation matrix and archives every run to avoid overwrite loss.
+
+Implemented factors:
+
+- `S`: system prompt enabled (`0/1`)
+- `A`: ADS-book context enabled (`0/1`)
+- `P`: prompt type (`0` unconstrained, `1` constrained)
+
+Default executed conditions (6):
+
+- `ANT_S0_A0_P0`
+- `ANT_S0_A0_P1`
+- `ANT_S0_A1_P0`
+- `ANT_S0_A1_P1`
+- `ANT_S1_A0_P0`
+- `ANT_S1_A0_P1`
+
+Excluded baseline conditions (already covered separately):
+
+- `ANT_S1_A1_P0`
+- `ANT_S1_A1_P1`
+
+Default model set:
+
+- `gpt-4o-mini`, `gpt-4o` (LLM API key path)
+- `o1`, `codestral-2508`, `deepseek-chat-v3.1` (OpenRouter key path)
+
+Examples:
+
+```powershell
+# Run default ablation set
+.\run_ablation.ps1
+
+# Run one condition + one model only
+.\run_ablation.ps1 -ConditionId ANT_S0_A0_P0 -Model deepseek-chat-v3.1 -Repeats 5 -Iterations 10
+
+# Run selected conditions
+.\run_ablation.ps1 -ConditionIds ANT_S0_A0_P1,ANT_S0_A1_P0,ANT_S0_A1_P1 -Repeats 5 -Iterations 10
+
+# List available conditions
+.\run_ablation.ps1 -ListConditions
+
+# Preview run plan without executing
+.\run_ablation.ps1 -DryRun
+```
+
+Run metadata is stored in:
+
+- `runs/ablation/manifest.csv`
 
 ---
 
@@ -253,8 +323,45 @@ Each run produces the following folders in the project root (cleared automatical
 | `NetlistFiles/` | Generated netlists (`netlist_1.txt`, `netlist_2.txt`, …) |
 | `LLM_Responses/` | Raw LLM responses per iteration |
 | `LLM_Feedback/` | Feedback messages sent back to the LLM |
-| `Outputs/ADS_outputs/` | ADS simulation output logs |
+| `Outputs/ADS_Outputs/` | ADS simulation output logs |
 | `ADS_Workspaces/` | ADS workspace files created during simulation |
+
+For batch/ablation workflows, each run is archived after execution under `runs/ablation/<run_id>/`, including:
+
+- `Outputs/`
+- `NetlistFiles/`
+- `LLM_Responses/`
+- `LLM_Feedback/`
+- `ADS_Workspaces/`
+
+This prevents data loss from the automatic cleanup at the start of the next run.
+
+---
+
+## 📊 Ablation Summary CSV
+
+To create a consolidated summary CSV that merges baseline full-prompt experiments and archived ablation runs, use:
+
+```powershell
+python .\build_ablation_summary.py
+```
+
+Generated file:
+
+- `Ablation_Study_Summary.csv`
+
+The summary includes:
+
+- ablation case ID
+- model and repeat
+- LLM time and token count
+- objective and objective-success flag
+- constraints-passed flag
+- netlist-simulated flag
+- simulation-passed flag
+- error-detected flag
+
+Note: for runs that used multiple iterations, this summary script uses only first-iteration artifacts (`iteration 1` and `ads_output_1.log`).
 
 ---
 
@@ -264,13 +371,19 @@ Each run produces the following folders in the project root (cleared automatical
 LaMDA-RF/
 ├── .env                          # Environment variables (not committed)
 ├── requirements.txt              # Python dependencies
+├── build_ablation_summary.py      # Builds consolidated ablation summary CSV
 ├── utils.py                      # Shared utilities and system prompt
 ├── run.ps1                       # Root helper script (check_env, freeze_deps, clean_env)
+├── run_ablation.ps1              # Antenna ablation batch runner
+├── ABLATION_AUTOMATION.md        # Detailed ablation workflow notes
 │
 ├── Data/
 │   ├── example_prompts.txt           # Design request prompts
 │   └── ADS-Book/
 │       ├── Netlist.txt               # Reference netlist example
+│       ├── keysight-ads-de.txt       # ADS DE scripting reference
+│       ├── libraries_and_components.txt
+│       ├── Design_Elements_info.txt
 │       ├── HOW_TO_GET_LIBRARIES.txt  # Instructions to export ADS library files
 │       ├── HOW_TO_GET_NETLIST.txt    # Instructions to export a reference netlist
 │       └── libraries/                # ADS component library definitions (not committed)
@@ -289,7 +402,9 @@ LaMDA-RF/
 ├── Evaluation/
 │   ├── Run.py                    # Main evaluation pipeline
 │   ├── run.ps1                   # Evaluation PowerShell runner
-│   └── prompt.txt                # Your design request goes here
+│   ├── prompt.txt                # Default design request
+│   ├── prompt_constrained.txt    # Constrained antenna prompt
+│   └── prompt_unconstrained.txt  # Unconstrained antenna prompt
 │
 └── Tests/
     ├── Run_Test.py               # Single-iteration test pipeline
