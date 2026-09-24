@@ -15,7 +15,7 @@ This module does not modify, import from, or depend on `Evaluation/ResBench/` or
 The pipeline, for each of the 5 designs:
 
 1. **Injects fabric knowledge** into the LLM system prompt via [`fabric_primer_7series.md`](fabric_primer_7series.md) — a primer covering CLB/slice basics, LUT6/LUT5, CARRY4, DSP48E1, MUXF7/MUXF8, SRLC32E/SRL16E, RAMB18E1/RAMB36E1, and (for the `explicit_primitive` style) structural instantiation templates for `CARRY4`, `DSP48E1`, `MUXF7`/`MUXF8`, and `SRLC32E`. Skipped entirely for the `baseline` style.
-2. **Generates** a Verilog design for the target module using a style-specific design prompt: unmodified base instructions for `baseline`, base instructions + a per-design `fabric_hint` for `fabric_aware` (e.g. "write the accumulate stage as full-vector addition so the synthesizer can infer a fast carry chain"), or base instructions + a structural-instantiation reminder + a per-design `primitive_hint` for `explicit_primitive` (e.g. explicit `CARRY4` port wiring guidance).
+2. **Generates** a Verilog design for the target module using a **merged prompt architecture**: output-format and Verilog coding rules live in the pipeline-local system prompt, then a style-specific fabric guidance suffix is appended once per run (none for `baseline`; generic fabric-efficiency reminder + per-design `fabric_hint` for `fabric_aware`; structural-instantiation reminder + per-design `primitive_hint` for `explicit_primitive`). The per-attempt user prompt stays focused on dynamic content (problem statement and corrective retry note, if any).
 3. **Simulates** the design against a fixed, pre-authored, self-checking testbench (Vivado behavioral simulation).
 4. **Synthesizes** the design (on simulation success) and parses Vivado's `report_utilization` "Primitives" table to count actually-inferred primitives (e.g. `CARRY4`, `DSP48E1`, `MUXF7`, `SRLC32E`).
 5. **Compares** actual primitive counts against the dataset's `expected_primitives` minimums (skipped for `baseline`, which only requires simulation + synthesis to pass).
@@ -36,7 +36,7 @@ The diagram below details the pipeline's operational logic, including stage prog
 graph TD
     Start([Start Run.py]) --> Init[Initialize unique run folder, set attempt = 1]
     
-    Init --> PromptGen[Build System Prompt & Design Prompt<br>based on Style & Attempt]
+    Init --> PromptGen[Build System Prompt<br>+ Style-Specific Guidance<br>based on Style and Design]
     
     PromptGen --> LLMGen[LLM proposes Verilog Code<br>and saves to attempt_N/Design_Files/]
     
@@ -159,11 +159,11 @@ When `--stop_stage synth` is set, implementation is skipped entirely. In the eve
 
 The `--style` flag (`STYLE` in the Makefile) selects how much fabric guidance the LLM receives, letting the same design be regenerated under 3 conditions for comparison:
 
-| Style | System Prompt | Design Prompt | Pass Criteria |
+| Style | System Prompt (effective) | Per-attempt User Prompt | Pass Criteria |
 |-------|----------------|----------------|----------------|
-| `baseline` | Plain system prompt (no fabric primer) | Plain design prompt (no hints) | Simulation + synthesis only — fabric primitive expectations are **not** checked |
-| `fabric_aware` *(default)* | System prompt + fabric primer | Design prompt + per-design `fabric_hint` (idiomatic coding style nudge) | Simulation + synthesis + `fabric_expectations_met` (lets synthesis infer the primitive) |
-| `explicit_primitive` | System prompt + fabric primer (incl. structural instantiation templates) | Design prompt + structural-instantiation reminder + per-design `primitive_hint` (exact port wiring guidance) | Simulation + synthesis + `fabric_expectations_met` (LLM must structurally instantiate the primitive by name) |
+| `baseline` | Pipeline-local system prompt only (includes output markers + Verilog rules; no fabric primer, no extra style guidance) | Dynamic problem/correction content only | Simulation + synthesis only — fabric primitive expectations are **not** checked |
+| `fabric_aware` *(default)* | Pipeline-local system prompt + fabric primer + generic fabric-efficiency reminder + per-design `fabric_hint` | Dynamic problem/correction content only | Simulation + synthesis + `fabric_expectations_met` (lets synthesis infer the primitive) |
+| `explicit_primitive` | Pipeline-local system prompt + fabric primer (incl. structural templates) + structural-instantiation reminder + per-design `primitive_hint` | Dynamic problem/correction content only | Simulation + synthesis + `fabric_expectations_met` (LLM must structurally instantiate the primitive by name) |
 
 Outputs are namespaced per style, per design, and per invocation — see [Output Directory Layout](#-output-directory-layout) below — so runs of different styles, different designs, or repeated runs of the same design/style never overwrite each other's artifacts (including full Vivado logs for every stage). Use `run_fabric_rtl_gen_all_styles` to run every design under all 3 styles in one pass, and `fabric_style_comparison` to build a per-module, per-style comparison CSV from the aggregated results JSON.
 
