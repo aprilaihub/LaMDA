@@ -177,6 +177,8 @@ class FabricAwarePipeline:
 
                 primitives = {}
                 per_primitive = {}
+                constraints_met = True
+                per_constraint = {}
                 fabric_met = False
                 synth_ok = False
                 impl_ok = None
@@ -190,6 +192,7 @@ class FabricAwarePipeline:
                         fabric_met, per_primitive = check_fabric_expectations(
                             primitives, self.design_entry.get("expected_primitives", {})
                         )
+                        constraints_met, per_constraint = self._evaluate_hard_constraints(primitives)
 
                 eda_total_time += time.time() - eda_start
 
@@ -201,10 +204,15 @@ class FabricAwarePipeline:
                     "expected_primitives": self.design_entry.get("expected_primitives", {}),
                     "fabric_expectations_met": fabric_met,
                     "per_primitive": per_primitive,
+                    "hard_constraints": self.design_entry.get("hard_constraints", {}),
+                    "hard_constraints_met": constraints_met,
+                    "per_constraint": per_constraint,
                     "implementation_ok": None,
                 }
 
-                attempt_success = self._is_attempt_successful(sim_passed, synth_ok, fabric_met)
+                attempt_success = self._is_attempt_successful(
+                    sim_passed, synth_ok, fabric_met, constraints_met
+                )
                 is_last_attempt = attempt_index == max_attempts - 1
 
                 run_impl = self.args.stop_stage == "impl" and (
@@ -236,7 +244,8 @@ class FabricAwarePipeline:
                     with open(design_file, 'r') as f:
                         previous_code = f.read()
                 correction_note, feedback_info = self._build_correction_note(
-                    attempt_dir, sim_passed, synth_ok, per_primitive
+                    attempt_dir, sim_passed, synth_ok, per_primitive,
+                    constraints_met, per_constraint
                 )
 
             self._save_reports(final_verdict, eda_total_time)
@@ -280,21 +289,23 @@ class FabricAwarePipeline:
             "vivado_logs": os.path.join(base, "vivado_logs"),
         }
 
-    def _is_attempt_successful(self, sim_passed, synth_ok, fabric_met):
+    def _is_attempt_successful(self, sim_passed, synth_ok, fabric_met, constraints_met):
         """
         Decide whether an attempt counts as successful (stops the retry loop).
 
-        For the 'baseline' style, fabric-primitive expectations are recorded
-        as a control data point but never required for success: baseline is
-        deliberately not told to target any primitive, so a fabric mismatch
-        should not trigger a self-correction retry. For 'fabric_aware' and
-        'explicit_primitive', fabric expectations must also be met.
+        For the 'baseline' style, fabric-primitive expectations AND hard
+        resource constraints are recorded as control data points but never
+        required for success: baseline is deliberately not told to target any
+        primitive or resource budget, so a fabric/constraint mismatch should
+        not trigger a self-correction retry. For 'fabric_aware' and
+        'explicit_primitive', both fabric expectations and hard constraints
+        must be met.
         """
         if not (sim_passed and synth_ok):
             return False
         if self.args.style == "baseline":
             return True
-        return fabric_met
+        return fabric_met and constraints_met
 
     def _build_base_prompt(self):
         """Assemble the module/Problem/Module header block from the dataset entry."""
@@ -302,7 +313,38 @@ class FabricAwarePipeline:
         for key in ("module", "Problem", "Module header"):
             if key in self.design_entry:
                 lines.append(f"{key}: {self.design_entry[key]}")
+        constraints_prompt = self._build_constraint_guidance_prompt()
+        if constraints_prompt:
+            lines.append(constraints_prompt)
         return "\n".join(lines)
+
+    def _build_constraint_guidance_prompt(self):
+        """Render optional hard constraints from the dataset into the user prompt."""
+        constraints = self.design_entry.get("hard_constraints", {}) or {}
+        if not constraints:
+            return ""
+
+        lines = ["Hard constraints:"]
+
+        required = constraints.get("required_primitives_min", {}) or {}
+        if required:
+            lines.append("- Required primitive minimums:")
+            for name, minimum in required.items():
+                lines.append(f"  - {name} >= {minimum}")
+
+        caps = constraints.get("resource_caps", {}) or {}
+        if caps:
+            lines.append("- Resource caps:")
+            for name, maximum in caps.items():
+                lines.append(f"  - {name} <= {maximum}")
+
+        forbidden = constraints.get("forbidden_primitives", []) or []
+        if forbidden:
+            lines.append("- Forbidden primitives:")
+            for name in forbidden:
+                lines.append(f"  - {name} must be 0")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
 
     def _build_style_design_prompt(self):
         """Build the style-specific fabric reminder/hint for the system prompt.
@@ -478,6 +520,77 @@ class FabricAwarePipeline:
         return result.get("primitives", {})
 
     @staticmethod
+    def _ff_total_from_primitives(primitives):
+        """Aggregate flip-flop-like primitives into a single FF_TOTAL metric."""
+        ff_like = ("FDRE", "FDCE", "FDPE", "FDSE", "FDC", "FDP")
+        return sum(int(primitives.get(name, 0)) for name in ff_like)
+
+    def _constraint_metric_value(self, primitives, name):
+        """Resolve a constraint metric name into an integer value."""
+        if name == "FF_TOTAL":
+            return self._ff_total_from_primitives(primitives)
+        return int(primitives.get(name, 0))
+
+    def _evaluate_hard_constraints(self, primitives):
+        """
+        Evaluate optional dataset hard constraints against actual primitive counts.
+
+        Supported keys under design_entry['hard_constraints']:
+        - required_primitives_min: {"PRIM": min_count, ...}
+        - resource_caps: {"PRIM or FF_TOTAL": max_count, ...}
+        - forbidden_primitives: ["PRIM", ...]  (equivalent to max 0)
+        """
+        constraints = self.design_entry.get("hard_constraints", {}) or {}
+        if not constraints:
+            return True, {}
+
+        required = constraints.get("required_primitives_min", {}) or {}
+        caps = constraints.get("resource_caps", {}) or {}
+        forbidden = constraints.get("forbidden_primitives", []) or []
+
+        per_constraint = {
+            "required_primitives_min": {},
+            "resource_caps": {},
+            "forbidden_primitives": {},
+        }
+        all_met = True
+
+        for name, minimum in required.items():
+            actual = self._constraint_metric_value(primitives, name)
+            met = actual >= int(minimum)
+            per_constraint["required_primitives_min"][name] = {
+                "expected_min": int(minimum),
+                "actual": actual,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        for name, maximum in caps.items():
+            actual = self._constraint_metric_value(primitives, name)
+            met = actual <= int(maximum)
+            per_constraint["resource_caps"][name] = {
+                "expected_max": int(maximum),
+                "actual": actual,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        for name in forbidden:
+            actual = self._constraint_metric_value(primitives, name)
+            met = actual == 0
+            per_constraint["forbidden_primitives"][name] = {
+                "expected": 0,
+                "actual": actual,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        return all_met, per_constraint
+
+    @staticmethod
     def _implementation_status(implementation_ok):
         """Map the tri-state implementation_ok (True/False/None) to a report string.
 
@@ -488,7 +601,8 @@ class FabricAwarePipeline:
             return "SKIPPED"
         return "PASS" if implementation_ok else "FAIL"
 
-    def _build_correction_note(self, attempt_dir, sim_passed, synth_ok, per_primitive):
+    def _build_correction_note(self, attempt_dir, sim_passed, synth_ok, per_primitive,
+                               constraints_met, per_constraint):
         """
         Build a corrective instruction (and a structured feedback_info dict,
         for persistence in llm_interaction.json) for the next retry attempt.
@@ -502,6 +616,35 @@ class FabricAwarePipeline:
             return self._simulation_feedback_note(attempt_dir)
         if not synth_ok:
             return self._synthesis_feedback_note(attempt_dir)
+        if not constraints_met:
+            violations = []
+            for name, info in per_constraint.get("required_primitives_min", {}).items():
+                if not info.get("met", True):
+                    violations.append(
+                        f"{name}: expected >= {info['expected_min']}, got {info['actual']}"
+                    )
+            for name, info in per_constraint.get("resource_caps", {}).items():
+                if not info.get("met", True):
+                    violations.append(
+                        f"{name}: expected <= {info['expected_max']}, got {info['actual']}"
+                    )
+            for name, info in per_constraint.get("forbidden_primitives", {}).items():
+                if not info.get("met", True):
+                    violations.append(
+                        f"{name}: expected 0, got {info['actual']}"
+                    )
+
+            note = (
+                "The previous design passed simulation/synthesis but violated hard resource "
+                "constraints: " + "; ".join(violations) + ". "
+                "Rewrite the RTL so these hard constraints are met while preserving the same "
+                "functional behavior and module interface."
+            )
+            return note, {
+                "type": "constraint_mismatch",
+                "hard_constraints": self.design_entry.get("hard_constraints", {}),
+                "per_constraint": per_constraint,
+            }
 
         missing = [
             f"{name}: expected >= {info['expected_min']}, got {info['actual']}"
@@ -663,8 +806,10 @@ class FabricAwarePipeline:
             "Implementation": self._implementation_status(last_attempt.get("implementation_ok")),
             "primary_primitive": self.design_entry.get("primary_primitive"),
             "expected_primitives": self.design_entry.get("expected_primitives", {}),
+            "hard_constraints": self.design_entry.get("hard_constraints", {}),
             "actual_primitives": last_attempt.get("actual_primitives", {}),
             "fabric_expectations_met": last_attempt.get("fabric_expectations_met", False),
+            "hard_constraints_met": last_attempt.get("hard_constraints_met", True),
         }
 
         output_json_path = self.args.output_json

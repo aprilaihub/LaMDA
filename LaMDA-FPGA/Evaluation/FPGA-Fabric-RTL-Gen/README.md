@@ -2,7 +2,7 @@
 
 **Fabric-aware LLM RTL generation for AMD/Xilinx 7-Series FPGAs**
 
-FPGA-Fabric-RTL-Gen explores whether an LLM's Verilog generation can be made *aware* of the underlying FPGA fabric — not just functionally correct, but written in a coding style that lets Vivado synthesis map the logic onto specific 7-Series primitives (fast carry chains, DSP slices, wide multiplexers, LUT-based shift registers, block RAM). The pipeline is a self-contained mini-benchmark of 5 hand-authored designs, each targeting one signature primitive, with a bounded self-correction loop when either functional simulation or fabric-primitive verification fails.
+FPGA-Fabric-RTL-Gen explores whether an LLM's Verilog generation can be made *aware* of the underlying FPGA fabric — not just functionally correct, but written in a coding style that lets Vivado synthesis map the logic onto specific 7-Series primitives (fast carry chains, DSP slices, wide multiplexers, LUT-based shift registers, block RAM). The pipeline is a self-contained mini-benchmark of 5 hand-authored designs, each targeting one signature primitive, with a bounded self-correction loop when functional simulation, fabric-primitive verification, or (where defined) a dataset-specific hard resource constraint fails.
 
 The pipeline supports 3 selectable **generation styles** (`--style`) so the same design can be compared under a naive baseline, idiomatic fabric-aware hints, and explicit structural primitive instantiation — see [Generation Styles](#-generation-styles) below.
 
@@ -19,8 +19,9 @@ The pipeline, for each of the 5 designs:
 3. **Simulates** the design against a fixed, pre-authored, self-checking testbench (Vivado behavioral simulation).
 4. **Synthesizes** the design (on simulation success) and parses Vivado's `report_utilization` "Primitives" table to count actually-inferred primitives (e.g. `CARRY4`, `DSP48E1`, `MUXF7`, `SRLC32E`).
 5. **Compares** actual primitive counts against the dataset's `expected_primitives` minimums (skipped for `baseline`, which only requires simulation + synthesis to pass).
-6. **Retries** (up to `--max_attempts` total attempts, including the first) with a corrective prompt built from the actual Vivado log of the single stage that failed — simulation feedback (compile/elaboration errors, or the fixed testbench's failing test vectors) if simulation failed, or synthesis feedback (synthesis errors, or critical warnings as a fallback) if simulation passed but synthesis failed, or (for non-baseline styles) an insufficient/missing fabric primitive if both passed — never mixing sim and synth feedback in the same note. Controlled by `--feedback_mode` (`compressed`: capped, structured extraction; `full`: the complete raw log verbatim); see [Self-Correction Feedback](#-self-correction-feedback) below.
-7. **Implements** (place & route) the final design once it passes, or after retries are exhausted, and records the outcome — unless `--stop_stage synth` is set, in which case synthesis is treated as the final stage and implementation is never invoked.
+6. **Evaluates** any dataset-defined `hard_constraints` for the design against the parsed primitive counts — required primitive minimums, resource caps (including the derived `FF_TOTAL` metric, the sum of all flip-flop primitives: `FDRE`/`FDCE`/`FDPE`/`FDSE`/`FDC`/`FDP`), and forbidden primitives. A design's `hard_constraints` block is entirely optional and, when present, targets a specific documented synthesis anti-pattern rather than a generic primitive-presence check (see [Dataset](#-dataset) below). Skipped for `baseline`, same as the fabric-primitive check.
+7. **Retries** (up to `--max_attempts` total attempts, including the first) with a corrective prompt built from the single relevant failure signal — simulation feedback (compile/elaboration errors, or the fixed testbench's failing test vectors) if simulation failed, or synthesis feedback (synthesis errors, or critical warnings as a fallback) if simulation passed but synthesis failed, or (for non-baseline styles) a hard-constraint violation if one is defined and unmet, or an insufficient/missing fabric primitive otherwise — never mixing feedback types in the same note. Controlled by `--feedback_mode` (`compressed`: capped, structured extraction; `full`: the complete raw log verbatim); see [Self-Correction Feedback](#-self-correction-feedback) below.
+8. **Implements** (place & route) the final design once it passes, or after retries are exhausted, and records the outcome — unless `--stop_stage synth` is set, in which case synthesis is treated as the final stage and implementation is never invoked.
 
 Each run's results are saved to a per-run `fabric_report.json` (see [Output Directory Layout](#-output-directory-layout) below) and appended to an aggregated results JSON (default `fabric_exp_results.json`), which can be converted to CSV for analysis, or compared across styles with `fabric_style_comparison`.
 
@@ -85,9 +86,21 @@ graph TD
     TerminateBaseImplFail --> End
     
     %% Fabric-Aware / Explicit Cases
-    StyleCheck -- No --> ParseUtil[Parse Reports & Count Primitives<br>e.g. CARRY4, DSP48E1]
+    StyleCheck -- No --> ParseUtil[Parse Reports & Count Primitives<br>e.g. CARRY4, DSP48E1, FF_TOTAL]
     
-    ParseUtil --> PrimCheck{Actual Counts >=<br>Expected Counts?}
+    ParseUtil --> ConstraintCheck{Dataset defines<br>hard_constraints?<br>All satisfied?}
+    
+    %% Hard Constraint Violation
+    ConstraintCheck -- No, violated --> ConstraintFail[Save per_constraint details to attempt report]
+    ConstraintFail --> RetryCheckConstraint{attempt < MAX_ATTEMPTS?}
+    
+    RetryCheckConstraint -- Yes --> ExtractConstraint[Build corrective note with constraint violations]
+    ExtractConstraint --> IncAttempt
+    RetryCheckConstraint -- No --> TerminateConstraint[Mark Functional: PASS, Synth: PASS, Impl: UNRUN<br>hard_constraints_met: False<br>Save fabric_report.json]
+    TerminateConstraint --> End
+    
+    %% Hard Constraints Satisfied (or none defined) -> check fabric primitives
+    ConstraintCheck -- Yes / none defined --> PrimCheck{Actual Counts >=<br>Expected Counts?}
     
     %% Primitives Expectation Not Met
     PrimCheck -- No --> ExpectationFail[Save details to attempt report]
@@ -114,7 +127,7 @@ graph TD
 
 ### 🔬 Core Case Analysis
 
-A key design feature of the pipeline is its **strict stage-isolation constraint**. Feedback prompts never mix logs or metrics from multiple phases; instead, the self-correction loop targets the earliest blocker in sequence. There are four distinct failure cases:
+A key design feature of the pipeline is its **strict stage-isolation constraint**. Feedback prompts never mix logs or metrics from multiple phases; instead, the self-correction loop targets the earliest blocker in sequence. There are five distinct failure cases:
 
 #### 1. Simulation Compiling & Elaboration Failures
 - **Triggers**: The generated Verilog code has syntax errors (e.g. missing semicolons, unclosed begin-end blocks), references undeclared signals, or contains mismatched module instantiations.
@@ -140,10 +153,15 @@ A key design feature of the pipeline is its **strict stage-isolation constraint*
   - In `compressed` mode, the parser searches `<module>_synth.log` for lines beginning with `ERROR:` (capped to 10 entries). If no explicit error line is found but synthesis still timed out or failed, it extracts lines with `CRITICAL WARNING:` as a fallback.
   - In `full` mode, the complete synthesis run log is supplied verbatim.
 
-#### 4. Fabric-Primitive Under-Mapping (Advanced Styles Only)
-- **Triggers**: Simulation and synthesis both pass successfully, but the synthesizer maps the high-level or structural description in a way that ignores or under-utilizes the required specialized primitives (e.g., maps an accumulator to general slices/LUTs instead of checking the `expected_primitives` minimum for `DSP48E1`). Ignored in `baseline` style.
+#### 4. Hard Resource Constraint Violation (Advanced Styles Only, Optional Per-Design)
+- **Triggers**: Simulation and synthesis both pass, but the design defines a `hard_constraints` block (see [Dataset](#-dataset) below) and the parsed primitive counts violate it — e.g. a multiply-accumulate design re-registers the `DSP48E1` accumulator output in fabric (spurious `FF_TOTAL` above the cap), or a shift register falls back to a discrete flip-flop chain instead of packing into `SRLC32E` (`FF_TOTAL` above the cap). Checked *before* the generic fabric-primitive check below, and only for designs that actually define `hard_constraints` — most designs don't, since a constraint is only added when it maps to a real, plausible synthesis anti-pattern. Ignored in `baseline` style.
+- **Handling**: Synthesis passes, but `_evaluate_hard_constraints` finds at least one violated `required_primitives_min`, `resource_caps` (including `FF_TOTAL`), or `forbidden_primitives` entry.
+- **Feedback Generation**: A structured, non-log text block listing each violated constraint as `name: expected <op> X, got Y`, instructing the LLM to rewrite the RTL so the constraint is met while preserving functional behavior and the module interface.
+
+#### 5. Fabric-Primitive Under-Mapping (Advanced Styles Only)
+- **Triggers**: Simulation and synthesis both pass successfully, hard constraints (if any) are satisfied, but the synthesizer maps the high-level or structural description in a way that ignores or under-utilizes the required specialized primitives (e.g., maps an accumulator to general slices/LUTs instead of checking the `expected_primitives` minimum for `DSP48E1`). Ignored in `baseline` style.
 - **Handling**: Synthesis passes, but the utilization parser discovers the actual primitive counts are lower than requirements.
-- **Feedback Generation**: Since simulation and synthesis succeeded, there are no log-based compile/synthesis errors. The pipeline builds a structured, non-log text block detailing expectation discrepancies:
+- **Feedback Generation**: Since simulation and synthesis succeeded and hard constraints (if any) passed, there are no log-based compile/synthesis errors or constraint violations. The pipeline builds a structured, non-log text block detailing expectation discrepancies:
   - Lists the target primitives with their expected counts vs actual inferred counts.
   - Tells the LLM explicitly which primitive constraints failed, prompting it to adjust its structural wiring or idiomatic coding structure.
 
@@ -161,9 +179,9 @@ The `--style` flag (`STYLE` in the Makefile) selects how much fabric guidance th
 
 | Style | System Prompt (effective) | Per-attempt User Prompt | Pass Criteria |
 |-------|----------------|----------------|----------------|
-| `baseline` | Pipeline-local system prompt only (includes output markers + Verilog rules; no fabric primer, no extra style guidance) | Dynamic problem/correction content only | Simulation + synthesis only — fabric primitive expectations are **not** checked |
-| `fabric_aware` *(default)* | Pipeline-local system prompt + fabric primer + generic fabric-efficiency reminder + per-design `fabric_hint` | Dynamic problem/correction content only | Simulation + synthesis + `fabric_expectations_met` (lets synthesis infer the primitive) |
-| `explicit_primitive` | Pipeline-local system prompt + fabric primer (incl. structural templates) + structural-instantiation reminder + per-design `primitive_hint` | Dynamic problem/correction content only | Simulation + synthesis + `fabric_expectations_met` (LLM must structurally instantiate the primitive by name) |
+| `baseline` | Pipeline-local system prompt only (includes output markers + Verilog rules; no fabric primer, no extra style guidance) | Dynamic problem/correction content only (no `hard_constraints` guidance) | Simulation + synthesis only — fabric primitive expectations and hard constraints are **not** checked |
+| `fabric_aware` *(default)* | Pipeline-local system prompt + fabric primer + generic fabric-efficiency reminder + per-design `fabric_hint` | Problem/correction content + optional `hard_constraints` guidance (if the design defines one) | Simulation + synthesis + `fabric_expectations_met` + `hard_constraints_met` (if defined) — lets synthesis infer the primitive |
+| `explicit_primitive` | Pipeline-local system prompt + fabric primer (incl. structural templates) + structural-instantiation reminder + per-design `primitive_hint` | Problem/correction content + optional `hard_constraints` guidance (if the design defines one) | Simulation + synthesis + `fabric_expectations_met` + `hard_constraints_met` (if defined) — LLM must structurally instantiate the primitive by name |
 
 Outputs are namespaced per style, per design, and per invocation — see [Output Directory Layout](#-output-directory-layout) below — so runs of different styles, different designs, or repeated runs of the same design/style never overwrite each other's artifacts (including full Vivado logs for every stage). Use `run_fabric_rtl_gen_all_styles` to run every design under all 3 styles in one pass, and `fabric_style_comparison` to build a per-module, per-style comparison CSV from the aggregated results JSON.
 
@@ -206,7 +224,8 @@ When an attempt fails, `_build_correction_note` inspects the **single relevant V
 |---------|----------------|-------------------|
 | Simulation failed | `<module>_sim.log` | Compile/elaboration `ERROR:` lines if the design never reached the testbench, otherwise the fixed testbench's failing test vectors (lines containing `FAIL`) |
 | Simulation passed, synthesis failed | `<module>_synth.log` | Synthesis `ERROR:` lines, or `CRITICAL WARNING:` lines as a fallback if no explicit error line is found |
-| Both passed, fabric primitive missing/insufficient (non-baseline styles) | *(not log-based)* | Structured per-primitive expected-vs-actual counts (unchanged from before) |
+| Both passed, hard constraint violated (non-baseline styles, only if the design defines `hard_constraints`) | *(not log-based)* | Structured per-constraint expected-vs-actual violations (`required_primitives_min`, `resource_caps` incl. `FF_TOTAL`, `forbidden_primitives`) — checked and reported *before* the generic fabric-primitive check below |
+| Both passed, hard constraints satisfied (or none defined), fabric primitive missing/insufficient (non-baseline styles) | *(not log-based)* | Structured per-primitive expected-vs-actual counts |
 
 Controlled by `--feedback_mode` (`FEEDBACK_MODE` in the Makefile):
 - `compressed` *(default)* — a capped, structured extraction (up to `FEEDBACK_MAX_ENTRIES = 10` entries per list, with a "+N more omitted" note if truncated) rendered as a short text block.
@@ -220,15 +239,24 @@ Every attempt also writes its own `Design_Files`-sibling `llm_interaction.json` 
 
 [`Dataset/fabric_problems.json`](Dataset/fabric_problems.json) contains 5 designs, each with a natural-language problem spec, a fixed module header, a hand-authored self-checking testbench (and clock constraint where applicable), the primitive(s) it is expected to exercise, a fabric-specific coding hint (`fabric_hint`, used by the `fabric_aware` style), and a structural wiring hint (`primitive_hint`, used by the `explicit_primitive` style).
 
-| ID | Module | Primary Primitive | Expected Primitives |
-|----|--------|--------------------|----------------------|
-| 1 | `adder_32bit_carry` | `CARRY4` | `CARRY4 >= 8` |
-| 2 | `mult_16x16_unsigned` | `DSP48E1` | `DSP48E1 >= 1` |
-| 3 | `mac_8x8_accum` (clocked) | `DSP48E1` | `DSP48E1 >= 1` |
-| 4 | `mux16to1` | `MUXF7` | `MUXF7 >= 1` |
-| 5 | `shift_reg_32_srl` (clocked) | `SRLC32E` | `SRLC32E >= 1` |
+| ID | Module | Primary Primitive | Expected Primitives | Hard Constraints |
+|----|--------|--------------------|----------------------|-------------------|
+| 1 | `adder_32bit_carry` | `CARRY4` | `CARRY4 >= 8` | *(none)* |
+| 2 | `mult_16x16_unsigned` | `DSP48E1` | `DSP48E1 >= 1` | *(none)* |
+| 3 | `mac_8x8_accum` (clocked) | `DSP48E1` | `DSP48E1 >= 1` | `FF_TOTAL <= 4` |
+| 4 | `mux16to1` | `MUXF7` | `MUXF7 >= 1` | *(none)* |
+| 5 | `shift_reg_32_srl` (clocked) | `SRLC32E` | `SRLC32E >= 1` | `FF_TOTAL <= 4` |
 
 Designs #3 and #5 are clocked and include a `Clock Constraint` (XDC) targeting a 10 ns period.
+
+#### Hard Constraints (Optional, Only Where They Test a Real Anti-Pattern)
+
+A design's optional `hard_constraints` object (`required_primitives_min`, `resource_caps`, `forbidden_primitives`) goes beyond "was the primitive present" to test *how* the fabric was used — but only where the constraint corresponds to a plausible, real Vivado synthesis outcome, not a decorative check added for symmetry. Currently only two designs define one, both using the derived `FF_TOTAL` metric (the sum of all flip-flop primitives observed in the utilization report — `FDRE`/`FDCE`/`FDPE`/`FDSE`/`FDC`/`FDP`):
+
+- **`mac_8x8_accum`** (`FF_TOTAL <= 4`): `DSP48E1`'s `PREG` already registers the accumulator; if the LLM additionally re-registers `acc` in fabric with a second `always @(posedge clk)` block (the "double-registration" anti-pattern documented in the fabric primer), that adds ~20 spurious flip-flops and an extra cycle of latency. The cap catches this even though functional simulation would otherwise still pass (just one cycle late relative to the reference behavior modeled by the testbench, or masked entirely if the testbench doesn't probe cycle-exact timing).
+- **`shift_reg_32_srl`** (`FF_TOTAL <= 4`): the idiomatic/idiomatic-adjacent styles are supposed to let synthesis pack the 32-stage shift into a single `SRLC32E`; falling back to 32 discrete `FDRE` registers is a real, observed failure mode (functionally correct, fabric-inefficient) that a primitive-presence check alone wouldn't catch if the LLM also happens to emit an incidental `SRLC32E` elsewhere.
+
+Other designs (`adder_32bit_carry`, `mult_16x16_unsigned`, `mux16to1`) intentionally have no `hard_constraints`: there is no realistic synthesis outcome for those designs that a resource cap or forbidden-primitive rule would meaningfully guard against (e.g. a plain adder or multiplexer is never going to get mapped onto a `DSP48E1`), so adding one would only be decorative. When present, `hard_constraints` is rendered into the per-attempt user prompt for `fabric_aware`/`explicit_primitive` styles (see `_build_constraint_guidance_prompt`) and enforced via `hard_constraints_met` in the pass/retry decision — `baseline` records it as a control data point but is never required to satisfy it (see [Generation Styles](#-generation-styles) above).
 
 ---
 
@@ -252,6 +280,11 @@ Designs #3 and #5 are clocked and include a `Clock Constraint` (XDC) targeting a
 - **actual_primitives**: Dict of primitive → count observed in Vivado's utilization report
 - **fabric_expectations_met**: True only if every expected primitive met its minimum count (always `false`/not evaluated for `baseline`, which does not check fabric expectations)
 
+#### Hard-Constraint Metrics (Optional Per-Design)
+- **hard_constraints**: The dataset's `hard_constraints` object for this design (`{}` if the design defines none — see [Dataset](#-dataset) above)
+- **hard_constraints_met**: True if every defined constraint (`required_primitives_min`, `resource_caps` incl. the derived `FF_TOTAL` metric, `forbidden_primitives`) was satisfied on the last attempt; `true` by default when no `hard_constraints` are defined for the design (vacuously satisfied), and not enforced for `baseline` (recorded as a control data point only)
+- **per_constraint** *(per-attempt detail, in `fabric_report.json` only, not in the aggregated results JSON)*: expected-vs-actual breakdown for each constraint category
+
 ### Example Result Entry
 
 ```json
@@ -271,8 +304,17 @@ Designs #3 and #5 are clocked and include a `Clock Constraint` (XDC) targeting a
   "primary_primitive": "CARRY4",
   "expected_primitives": {"CARRY4": 8},
   "actual_primitives": {"CARRY4": 8, "LUT2": 4},
-  "fabric_expectations_met": true
+  "fabric_expectations_met": true,
+  "hard_constraints": {},
+  "hard_constraints_met": true
 }
+```
+
+For a design that defines `hard_constraints` (e.g. `mac_8x8_accum`), the same two fields instead look like:
+
+```json
+"hard_constraints": {"resource_caps": {"FF_TOTAL": 4}},
+"hard_constraints_met": true
 ```
 
 `run_id` traces this aggregated entry back to its unique `Outputs/<style>/design_<ID>_<module>/run_<run_id>/` directory, where the full Vivado logs for every stage of every attempt are preserved.

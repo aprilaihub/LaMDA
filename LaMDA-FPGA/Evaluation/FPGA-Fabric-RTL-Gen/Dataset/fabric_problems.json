@@ -37,6 +37,11 @@
       "expected_primitives": {
         "DSP48E1": 1
       },
+      "hard_constraints": {
+        "resource_caps": {
+          "FF_TOTAL": 4
+        }
+      },
       "fabric_hint": "Keep the multiply and the accumulation together in the same synchronous always block (e.g. acc <= acc + a*b), rather than splitting them into a separate multiplier and a separate adder, so the synthesis tool can map the multiply-accumulate onto a single dedicated DSP datapath.",
       "primitive_hint": "Explicitly instantiate a DSP48E1 primitive to implement the multiply-accumulate, per Template B (Synchronous Multiply-Accumulator) in the FPGA fabric knowledge above. Wire a and b (zero-extended) to A/B, use CLK for clk, configure OPMODE/ALUMODE so P accumulates a*b into itself each cycle when accum_en is asserted (gate the relevant clock-enable port with accum_en), and use RSTP (or equivalent reset behavior) driven by rst to synchronously clear the accumulator. IMPORTANT: PREG(1) already makes P a registered signal (it updates on the same clock edge that latches the new accumulated value), so acc MUST be exposed as a COMBINATIONAL slice of P's lower 20 bits (e.g. always @(*) acc = accum_wide[19:0];), never re-registered with a second always @(posedge clk) block -- doing so adds a second cycle of latency and every result will read back exactly one cycle late."
     },
@@ -63,6 +68,11 @@
       "Clock Constraint": "create_clock -period 10.000 -name clk [get_ports clk]\n",
       "expected_primitives": {
         "SRLC32E": 1
+      },
+      "hard_constraints": {
+        "resource_caps": {
+          "FF_TOTAL": 4
+        }
       },
       "fabric_hint": "Model the shift register as a single synchronous shift of a vector (e.g. shreg <= {shreg[N-2:0], serial_in};) with a uniform clock and enable, rather than mixing per-bit reset/enable logic, so the synthesis tool can pack it into a dedicated LUT-based shift-register primitive instead of discrete flip-flops.",
       "primitive_hint": "Explicitly instantiate one SRLC32E primitive to implement the 32-stage shift register, per the SRLC32E template in the FPGA fabric knowledge above. Wire D to serial_in, CE to shift_en, CLK to clk, tie A to 5'd31 (the fixed 32-stage tap address), and connect serial_out to the Q31 output (the fixed-delay tap), since only the final stage needs to be observable."
