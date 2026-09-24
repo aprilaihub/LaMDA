@@ -220,3 +220,149 @@ def check_simulation_passed(sim_log_path, verbose=False):
                     print("Simulation FAILED")
                 return False
     return False
+
+
+# ---------------------------------------------------------------------------
+# FPGA fabric-awareness helpers (used by Evaluation/FPGA-Fabric-RTL-Gen)
+# ---------------------------------------------------------------------------
+
+FABRIC_KNOWLEDGE_HEADER = "FPGA FABRIC KNOWLEDGE (Xilinx 7-Series)"
+
+
+def load_fabric_primer(primer_path):
+    """
+    Load the Xilinx 7-series fabric primer (Markdown) as plain text.
+
+    Args:
+        primer_path: Path to the fabric primer Markdown file.
+
+    Returns:
+        str: The raw contents of the primer file.
+
+    Raises:
+        FileNotFoundError: If the primer file does not exist.
+    """
+    with open(primer_path, 'r') as f:
+        return f.read()
+
+
+def build_fabric_system_prompt(base_system_prompt, primer_text):
+    """
+    Extend a base system prompt with Xilinx 7-series fabric knowledge.
+
+    Args:
+        base_system_prompt: The existing system prompt string (e.g. SYSTEM_PROMPT).
+        primer_text: Fabric primer text as returned by load_fabric_primer().
+
+    Returns:
+        str: The combined system prompt with a clearly delimited fabric
+             knowledge section appended.
+    """
+    return (
+        f"{base_system_prompt}\n\n"
+        f"# {FABRIC_KNOWLEDGE_HEADER}\n"
+        f"{primer_text.strip()}\n"
+        f"# END {FABRIC_KNOWLEDGE_HEADER}"
+    )
+
+
+def build_fabric_design_prompt(base_design_prompt, fabric_hint=None):
+    """
+    Extend a base design prompt with a per-design fabric efficiency hint.
+
+    Args:
+        base_design_prompt: The existing design-instruction prompt string
+            (e.g. DESIGN_PROMPT).
+        fabric_hint: Optional short guidance string describing the kind of
+            fabric-efficient coding style expected for this design (e.g.
+            "prefer a coding style that lets the synthesizer infer a fast
+            carry chain for the addition"). If None, only a generic
+            efficiency reminder is appended.
+
+    Returns:
+        str: The combined design prompt.
+    """
+    generic_reminder = (
+        "Write RTL using idiomatic, synthesizable Verilog constructs (e.g. native "
+        "arithmetic and case/if-else operators on full vectors) so that the "
+        "synthesis tool can naturally map the logic onto efficient FPGA fabric "
+        "primitives. Do not manually instantiate primitives unless explicitly asked."
+    )
+    hint_text = fabric_hint.strip() if fabric_hint else ""
+    parts = [base_design_prompt.strip(), generic_reminder]
+    if hint_text:
+        parts.append(hint_text)
+    return " ".join(parts)
+
+
+def build_primitive_instantiation_prompt(base_design_prompt, primitive_hint=None):
+    """
+    Extend a base design prompt to require explicit Xilinx primitive instantiation.
+
+    Unlike build_fabric_design_prompt() (which only nudges coding style so the
+    synthesis tool infers primitives on its own), this variant instructs the
+    LLM to directly instantiate the target UNISIM primitive(s) (e.g. CARRY4,
+    DSP48E1, MUXF7/MUXF8, SRLC32E) by name, wiring their ports explicitly. It
+    is intended to be paired with a system prompt that includes the fabric
+    primer's "Structural Instantiation Templates" section, and with a
+    per-design `primitive_hint` describing exactly how to wire the primitive
+    for that design.
+
+    Args:
+        base_design_prompt: The existing design-instruction prompt string
+            (e.g. DESIGN_PROMPT).
+        primitive_hint: Optional short guidance string describing which
+            primitive(s) to instantiate and how to wire them for this
+            specific design (e.g. "chain 8x CARRY4 instances for the 32-bit
+            adder"). If None, only a generic structural-instantiation
+            instruction is appended.
+
+    Returns:
+        str: The combined design prompt.
+    """
+    structural_reminder = (
+        "Write RTL that explicitly instantiates the target Xilinx 7-Series UNISIM "
+        "primitive(s) by name (e.g. CARRY4, DSP48E1, MUXF7, MUXF8, SRLC32E), wiring "
+        "their ports directly, following the 'Structural Instantiation Templates' "
+        "reference in the FPGA fabric knowledge above. Do not rely solely on generic "
+        "operators (+, *, case) and hope the synthesis tool infers the primitive; "
+        "instantiate it structurally."
+    )
+    hint_text = primitive_hint.strip() if primitive_hint else ""
+    parts = [base_design_prompt.strip(), structural_reminder]
+    if hint_text:
+        parts.append(hint_text)
+    return " ".join(parts)
+
+
+def check_fabric_expectations(actual_primitives, expected_primitives):
+    """
+    Compare observed primitive usage counts against the expected minimums.
+
+    Args:
+        actual_primitives: dict mapping primitive name (e.g. "CARRY4") to the
+            count reported by Vivado's utilization report.
+        expected_primitives: dict mapping primitive name to the minimum count
+            required for the design to be considered fabric-aware.
+
+    Returns:
+        tuple(bool, dict): (all_met, per_primitive_results) where
+            per_primitive_results maps each expected primitive name to a dict
+            {"expected_min": int, "actual": int, "met": bool}.
+    """
+    actual_primitives = actual_primitives or {}
+    per_primitive_results = {}
+    all_met = True
+
+    for primitive, expected_min in expected_primitives.items():
+        actual_count = actual_primitives.get(primitive, 0)
+        met = actual_count >= expected_min
+        per_primitive_results[primitive] = {
+            "expected_min": expected_min,
+            "actual": actual_count,
+            "met": met,
+        }
+        if not met:
+            all_met = False
+
+    return all_met, per_primitive_results

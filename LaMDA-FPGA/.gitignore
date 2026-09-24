@@ -7,6 +7,9 @@ Evaluation/ResBench/Analysis/experiments/
 Evaluation/ResBench/Analysis/exp_*.json
 Evaluation/ResBench/Analysis/__pycache__
 Evaluation/ResBench/Outputs/
+Evaluation/FPGA-Fabric-RTL-Gen/Outputs/
+Evaluation/FPGA-Fabric-RTL-Gen/fabric_exp_results.json
+Evaluation/FPGA-Fabric-RTL-Gen/Analysis/test_fabric_parser.py
 clockInfo.txt
 tight_setup_hold_pins.txt
 Tests/Outputs/

@@ -1,0 +1,52 @@
+# Xilinx 7-Series fabric configuration for FPGA-Fabric-RTL-Gen
+#
+# This file documents which FPGA part is targeted by default, and maps
+# the primitive names checked in Dataset/fabric_problems.json to their
+# functional category and a short description. It is informational /
+# used for reporting context; the regex-based parsing of Vivado reports in
+# Analysis/FabricAnalysis.py does not depend on this file at runtime.
+
+family: "xc7"
+default_part: "xc7a100tcsg324-1"   # Artix-7 (customizable via --fpga_part)
+
+supported_parts:
+  - "xc7a100tcsg324-1"   # Artix-7
+  - "xc7a35tcpg236-1"    # Artix-7 (smaller)
+  - "xc7z020clg400-1"    # Zynq-7000 (same fabric primitives as Artix-7)
+  - "xc7k70tfbg484-1"    # Kintex-7
+  - "xc7vx330tffg1157-1" # Virtex-7
+
+primitives:
+  LUT6:
+    category: "CLB / Logic"
+    description: "6-input look-up table, general combinational logic."
+  LUT5:
+    category: "CLB / Logic"
+    description: "5-input look-up table (co-resides with LUT6 in LUT6_2)."
+  CARRY4:
+    category: "CLB / Arithmetic"
+    description: "4-bit dedicated fast carry chain used for adders, subtractors, comparators."
+  DSP48E1:
+    category: "DSP"
+    description: "25x18 multiplier + 48-bit ALU, used for multiply / multiply-accumulate."
+  MUXF7:
+    category: "CLB / Mux"
+    description: "8:1 dedicated multiplexer combining two LUT6 outputs."
+  MUXF8:
+    category: "CLB / Mux"
+    description: "16:1 dedicated multiplexer combining two MUXF7 outputs."
+  SRL16E:
+    category: "CLB / Shift Register"
+    description: "16-bit shift register implemented in a single LUT (SLICEM)."
+  SRLC32E:
+    category: "CLB / Shift Register"
+    description: "32-bit cascadable shift register implemented in a single LUT (SLICEM)."
+  RAMB18E1:
+    category: "Block RAM"
+    description: "18Kb block RAM primitive."
+  RAMB36E1:
+    category: "Block RAM"
+    description: "36Kb block RAM primitive (can be split into two RAMB18E1)."
+  FDRE:
+    category: "Register"
+    description: "D flip-flop with synchronous reset and clock enable."
