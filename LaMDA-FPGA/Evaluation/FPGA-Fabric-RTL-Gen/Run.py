@@ -16,6 +16,7 @@ and EDA_Interface/Vivado.py.
 """
 
 import os
+import re
 import sys
 import time
 import json
@@ -42,7 +43,7 @@ from utils import (
     build_primitive_instantiation_prompt,
     check_fabric_expectations,
 )
-from FabricAnalysis import FabricReportParser
+from FabricAnalysis import FabricReportParser, InfEncoder
 
 DATASET_FILE = os.path.join(FABRIC_RTL_GEN_DIR, "Dataset", "fabric_problems.json")
 PRIMER_FILE = os.path.join(FABRIC_RTL_GEN_DIR, "fabric_primer_7series.md")
@@ -176,12 +177,16 @@ class FabricAwarePipeline:
                 sim_passed = self._run_simulation(attempt_dir)
 
                 primitives = {}
+                resources = {}
                 per_primitive = {}
                 constraints_met = True
                 per_constraint = {}
                 fabric_met = False
                 synth_ok = False
                 impl_ok = None
+                timing_info = {}
+                critical_warnings_info = {}
+                dsp_mapping = []
 
                 if sim_passed:
                     if self.args.verbose:
@@ -189,10 +194,23 @@ class FabricAwarePipeline:
                     synth_ok = self._run_synthesis(attempt_dir)
                     if synth_ok:
                         primitives = self._parse_primitives(attempt_dir)
+                        resources = self._parse_resources(attempt_dir)
                         fabric_met, per_primitive = check_fabric_expectations(
                             primitives, self.design_entry.get("expected_primitives", {})
                         )
-                        constraints_met, per_constraint = self._evaluate_hard_constraints(primitives)
+                        # Always parsed (not just as a failure fallback): the confirmed
+                        # multi-driven-net case shows synthesis can report success while
+                        # hiding a critical warning, so these signals must be captured
+                        # for every successful synthesis, regardless of pass/fail verdict.
+                        timing_info = self._parse_timing(attempt_dir)
+                        critical_warnings_info = self._parse_critical_warnings(attempt_dir)
+                        dsp_mapping = self._parse_dsp_mapping(attempt_dir)
+                        constraints_met, per_constraint = self._evaluate_hard_constraints(
+                            primitives, timing=timing_info,
+                            critical_warnings_info=critical_warnings_info,
+                            dsp_mapping=dsp_mapping,
+                            resources=resources,
+                        )
 
                 eda_total_time += time.time() - eda_start
 
@@ -201,12 +219,17 @@ class FabricAwarePipeline:
                     "sim_passed": sim_passed,
                     "synthesis_ok": synth_ok,
                     "actual_primitives": primitives,
+                    "actual_resources": resources,
                     "expected_primitives": self.design_entry.get("expected_primitives", {}),
                     "fabric_expectations_met": fabric_met,
                     "per_primitive": per_primitive,
                     "hard_constraints": self.design_entry.get("hard_constraints", {}),
                     "hard_constraints_met": constraints_met,
                     "per_constraint": per_constraint,
+                    "timing": timing_info,
+                    "critical_warnings_total": critical_warnings_info.get("critical_warnings_total"),
+                    "multi_driven_nets": critical_warnings_info.get("multi_driven_nets", {}),
+                    "dsp_mapping": dsp_mapping,
                     "implementation_ok": None,
                 }
 
@@ -245,7 +268,7 @@ class FabricAwarePipeline:
                         previous_code = f.read()
                 correction_note, feedback_info = self._build_correction_note(
                     attempt_dir, sim_passed, synth_ok, per_primitive,
-                    constraints_met, per_constraint
+                    constraints_met, per_constraint, timing_info
                 )
 
             self._save_reports(final_verdict, eda_total_time)
@@ -343,6 +366,50 @@ class FabricAwarePipeline:
             lines.append("- Forbidden primitives:")
             for name in forbidden:
                 lines.append(f"  - {name} must be 0")
+
+        timing = constraints.get("timing", {}) or {}
+        min_slack_ns = timing.get("min_slack_ns")
+        if min_slack_ns is not None:
+            lines.append("- Timing:")
+            lines.append(
+                f"  - Post-synthesis worst negative slack must be >= {min_slack_ns} ns "
+                "against the provided clock constraint (timing must be MET, not VIOLATED)."
+            )
+
+        max_critical_warnings = constraints.get("max_critical_warnings")
+        if max_critical_warnings is not None:
+            lines.append("- Critical warnings:")
+            lines.append(
+                f"  - Synthesis must emit at most {max_critical_warnings} CRITICAL WARNING message(s) "
+                "(e.g. avoid multi-driven nets; a critical warning can let synthesis report success "
+                "while producing an incorrect netlist)."
+            )
+
+        dsp_register_config = constraints.get("dsp_register_config", {}) or {}
+        if dsp_register_config:
+            lines.append("- DSP register configuration (as reported in Vivado's DSP Final Report):")
+            for reg_name, expected in dsp_register_config.items():
+                state = "enabled (1)" if expected else "disabled (0)"
+                lines.append(f"  - {reg_name} must be {state}")
+
+        primitive_alternatives = constraints.get("primitive_alternatives", {}) or {}
+        at_least_one_of = primitive_alternatives.get("at_least_one_of", []) or []
+        min_total = primitive_alternatives.get("min_total")
+        if at_least_one_of and min_total is not None:
+            lines.append("- Primitive alternatives (any combination is acceptable):")
+            lines.append(
+                f"  - Combined count across {{{', '.join(at_least_one_of)}}} must be >= {min_total}"
+            )
+
+        dsp_datapath_pattern = constraints.get("dsp_datapath_pattern")
+        if dsp_datapath_pattern:
+            lines.append("- DSP datapath packing:")
+            lines.append(
+                "  - At least one inferred DSP48E1 instance's mapping (as reported in "
+                f"Vivado's DSP Final Report) must match the pattern: {dsp_datapath_pattern} "
+                "(i.e. the operation must be packed into a single DSP instance, not split "
+                "across the DSP and fabric logic)."
+            )
 
         return "\n".join(lines) if len(lines) > 1 else ""
 
@@ -519,44 +586,145 @@ class FabricAwarePipeline:
         result = self.parser.parse_utilization_report(content)
         return result.get("primitives", {})
 
+    def _parse_resources(self, attempt_dir):
+        """Parse the synthesis utilization report's Slice-Logic summary
+        (LUT/register/BRAM/DSP/IO used+available+utilization%), e.g. for
+        the LUT_USED/REGISTER_USED hard_constraints metrics."""
+        util_file = os.path.join(
+            attempt_dir["vivado_project"], "reports", "synthesis", "utilization_report.txt"
+        )
+        if not os.path.exists(util_file):
+            return {}
+        with open(util_file, 'r', errors='ignore') as f:
+            content = f.read()
+        result = self.parser.parse_utilization_report(content)
+        return result.get("resources", {})
+
+    def _parse_timing(self, attempt_dir):
+        """
+        Parse the post-synthesis timing report for slack/data-path-delay
+        metrics, plus a critical-path cell-type breakdown (Phase 3 diagnosis)
+        nested under the "critical_path" key. Returns {} if the report is
+        missing (e.g. synthesis failed before report_timing ran).
+        """
+        timing_file = os.path.join(
+            attempt_dir["vivado_project"], "reports", "synthesis", "timing_report.txt"
+        )
+        if not os.path.exists(timing_file):
+            return {}
+        with open(timing_file, 'r', errors='ignore') as f:
+            content = f.read()
+        result = self.parser.parse_timing_report(content)
+        result["critical_path"] = self.parser.parse_critical_path_cells(content)
+        return result
+
+    def _parse_critical_warnings(self, attempt_dir):
+        """
+        Parse the synthesis log for ALL critical warnings (regardless of
+        pass/fail), e.g. the confirmed multi-driven-net silent-pass case.
+        Returns {} if the synthesis log is missing.
+        """
+        synth_log = os.path.join(attempt_dir["vivado_logs"], f"{self.design_name}_synth.log")
+        if not os.path.exists(synth_log):
+            return {}
+        with open(synth_log, 'r', errors='ignore') as f:
+            content = f.read()
+        return self.parser.parse_critical_warnings(content)
+
+    def _parse_dsp_mapping(self, attempt_dir):
+        """
+        Parse the synthesis log's "DSP Final Report" table for per-DSP48E1
+        instance register configuration (AREG/BREG/.../PREG). Returns [] if
+        the synthesis log is missing or no DSP was inferred.
+        """
+        synth_log = os.path.join(attempt_dir["vivado_logs"], f"{self.design_name}_synth.log")
+        if not os.path.exists(synth_log):
+            return []
+        with open(synth_log, 'r', errors='ignore') as f:
+            content = f.read()
+        return self.parser.parse_dsp_mapping_table(content)
+
     @staticmethod
     def _ff_total_from_primitives(primitives):
         """Aggregate flip-flop-like primitives into a single FF_TOTAL metric."""
         ff_like = ("FDRE", "FDCE", "FDPE", "FDSE", "FDC", "FDP")
         return sum(int(primitives.get(name, 0)) for name in ff_like)
 
-    def _constraint_metric_value(self, primitives, name):
-        """Resolve a constraint metric name into an integer value."""
+    def _constraint_metric_value(self, primitives, name, resources=None):
+        """Resolve a constraint metric name into an integer value.
+
+        Supports two derived metrics beyond a literal primitive lookup:
+        - FF_TOTAL: sum of all flip-flop-like primitives.
+        - LUT_USED / REGISTER_USED: Slice-Logic summary usage counts from
+          report_utilization (requires the `resources` dict from
+          `_parse_resources`; resolves to 0 if not provided).
+        """
         if name == "FF_TOTAL":
             return self._ff_total_from_primitives(primitives)
+        if name in ("LUT_USED", "REGISTER_USED"):
+            resources = resources or {}
+            key = "luts" if name == "LUT_USED" else "registers"
+            return int(resources.get(key, {}).get("used", 0))
         return int(primitives.get(name, 0))
 
-    def _evaluate_hard_constraints(self, primitives):
+    def _evaluate_hard_constraints(self, primitives, timing=None, critical_warnings_info=None,
+                                    dsp_mapping=None, resources=None):
         """
-        Evaluate optional dataset hard constraints against actual primitive counts.
+        Evaluate optional dataset hard constraints against actual synthesis results.
 
         Supported keys under design_entry['hard_constraints']:
-        - required_primitives_min: {"PRIM": min_count, ...}
-        - resource_caps: {"PRIM or FF_TOTAL": max_count, ...}
+        - required_primitives_min: {"PRIM or FF_TOTAL/LUT_USED/REGISTER_USED": min_count, ...}
+        - resource_caps: {"PRIM or FF_TOTAL/LUT_USED/REGISTER_USED": max_count, ...}
         - forbidden_primitives: ["PRIM", ...]  (equivalent to max 0)
+        - timing: {"min_slack_ns": float}  (post-synthesis worst slack, from
+          report_timing; pre-route only, see README limitations)
+        - max_critical_warnings: int  (total "CRITICAL WARNING:" lines in the
+          synthesis log, e.g. multi-driven nets, regardless of pass/fail)
+        - dsp_register_config: {"AREG"/"BREG"/.../"PREG": 0 or 1, ...}
+          (every inferred DSP48E1 instance's register flag, from the
+          synthesis log's "DSP Final Report" table, must match)
+        - primitive_alternatives: {"at_least_one_of": ["PRIM", ...], "min_total": N}
+          (sum of the named metrics/primitives must reach N; lets a design
+          accept two architecturally distinct, equally-valid implementations
+          instead of forcing one "correct" primitive)
+        - dsp_datapath_pattern: a regex string that must match at least one
+          inferred DSP48E1 instance's "DSP Mapping" string (e.g. "(P+A*B)'"),
+          from the synthesis log's "DSP Final Report" table. This is a
+          text-pattern heuristic (same caveat as the critical-path cell
+          breakdown parser), not a formal netlist-topology check.
         """
         constraints = self.design_entry.get("hard_constraints", {}) or {}
         if not constraints:
             return True, {}
 
+        timing = timing or {}
+        critical_warnings_info = critical_warnings_info or {}
+        dsp_mapping = dsp_mapping or []
+        resources = resources or {}
+
         required = constraints.get("required_primitives_min", {}) or {}
         caps = constraints.get("resource_caps", {}) or {}
         forbidden = constraints.get("forbidden_primitives", []) or []
+        timing_constraints = constraints.get("timing", {}) or {}
+        max_critical_warnings = constraints.get("max_critical_warnings")
+        dsp_register_config = constraints.get("dsp_register_config", {}) or {}
+        primitive_alternatives = constraints.get("primitive_alternatives", {}) or {}
+        dsp_datapath_pattern = constraints.get("dsp_datapath_pattern")
 
         per_constraint = {
             "required_primitives_min": {},
             "resource_caps": {},
             "forbidden_primitives": {},
+            "timing": {},
+            "max_critical_warnings": {},
+            "dsp_register_config": {},
+            "primitive_alternatives": {},
+            "dsp_datapath_pattern": {},
         }
         all_met = True
 
         for name, minimum in required.items():
-            actual = self._constraint_metric_value(primitives, name)
+            actual = self._constraint_metric_value(primitives, name, resources)
             met = actual >= int(minimum)
             per_constraint["required_primitives_min"][name] = {
                 "expected_min": int(minimum),
@@ -567,7 +735,7 @@ class FabricAwarePipeline:
                 all_met = False
 
         for name, maximum in caps.items():
-            actual = self._constraint_metric_value(primitives, name)
+            actual = self._constraint_metric_value(primitives, name, resources)
             met = actual <= int(maximum)
             per_constraint["resource_caps"][name] = {
                 "expected_max": int(maximum),
@@ -578,11 +746,91 @@ class FabricAwarePipeline:
                 all_met = False
 
         for name in forbidden:
-            actual = self._constraint_metric_value(primitives, name)
+            actual = self._constraint_metric_value(primitives, name, resources)
             met = actual == 0
             per_constraint["forbidden_primitives"][name] = {
                 "expected": 0,
                 "actual": actual,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        min_slack_ns = timing_constraints.get("min_slack_ns")
+        if min_slack_ns is not None:
+            actual_slack = timing.get("slack")
+            met = actual_slack is not None and actual_slack >= float(min_slack_ns)
+            per_constraint["timing"]["min_slack_ns"] = {
+                "expected_min_ns": float(min_slack_ns),
+                "actual_slack_ns": actual_slack,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        if max_critical_warnings is not None:
+            actual_cw = critical_warnings_info.get("critical_warnings_total", 0)
+            met = actual_cw <= int(max_critical_warnings)
+            per_constraint["max_critical_warnings"]["total"] = {
+                "expected_max": int(max_critical_warnings),
+                "actual": actual_cw,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        for reg_name, expected in dsp_register_config.items():
+            expected_val = int(expected)
+            if not dsp_mapping:
+                # No DSP instance was found in the synthesis log at all, so
+                # the register configuration cannot be verified: treat as unmet.
+                met = False
+                actual_vals = []
+            else:
+                actual_vals = [row.get(reg_name) for row in dsp_mapping]
+                met = all(val == expected_val for val in actual_vals)
+            per_constraint["dsp_register_config"][reg_name] = {
+                "expected": expected_val,
+                "actual": actual_vals,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        at_least_one_of = primitive_alternatives.get("at_least_one_of", []) or []
+        min_total = primitive_alternatives.get("min_total")
+        if at_least_one_of and min_total is not None:
+            per_name_actual = {
+                name: self._constraint_metric_value(primitives, name, resources)
+                for name in at_least_one_of
+            }
+            actual_total = sum(per_name_actual.values())
+            met = actual_total >= int(min_total)
+            per_constraint["primitive_alternatives"]["at_least_one_of"] = {
+                "names": list(at_least_one_of),
+                "expected_min_total": int(min_total),
+                "actual_per_name": per_name_actual,
+                "actual_total": actual_total,
+                "met": met,
+            }
+            if not met:
+                all_met = False
+
+        if dsp_datapath_pattern:
+            if not dsp_mapping:
+                met = False
+                matched_mappings = []
+            else:
+                pattern = re.compile(dsp_datapath_pattern)
+                matched_mappings = [
+                    row.get("dsp_mapping") for row in dsp_mapping
+                    if row.get("dsp_mapping") and pattern.search(row["dsp_mapping"])
+                ]
+                met = len(matched_mappings) > 0
+            per_constraint["dsp_datapath_pattern"]["pattern"] = {
+                "expected_pattern": dsp_datapath_pattern,
+                "actual_dsp_mappings": [row.get("dsp_mapping") for row in dsp_mapping],
+                "matched": matched_mappings,
                 "met": met,
             }
             if not met:
@@ -602,7 +850,7 @@ class FabricAwarePipeline:
         return "PASS" if implementation_ok else "FAIL"
 
     def _build_correction_note(self, attempt_dir, sim_passed, synth_ok, per_primitive,
-                               constraints_met, per_constraint):
+                               constraints_met, per_constraint, timing_info=None):
         """
         Build a corrective instruction (and a structured feedback_info dict,
         for persistence in llm_interaction.json) for the next retry attempt.
@@ -634,16 +882,69 @@ class FabricAwarePipeline:
                         f"{name}: expected 0, got {info['actual']}"
                     )
 
+            timing_violated = False
+            for name, info in per_constraint.get("timing", {}).items():
+                if not info.get("met", True):
+                    timing_violated = True
+                    violations.append(
+                        f"timing.{name}: expected slack >= {info['expected_min_ns']} ns, "
+                        f"got {info['actual_slack_ns']} ns"
+                    )
+            for name, info in per_constraint.get("max_critical_warnings", {}).items():
+                if not info.get("met", True):
+                    violations.append(
+                        f"max_critical_warnings: expected <= {info['expected_max']}, "
+                        f"got {info['actual']} (e.g. multi-driven nets; verify no signal "
+                        "is driven by more than one source)"
+                    )
+            for name, info in per_constraint.get("dsp_register_config", {}).items():
+                if not info.get("met", True):
+                    violations.append(
+                        f"dsp_register_config.{name}: expected {info['expected']} on every "
+                        f"inferred DSP48E1 instance, got {info['actual']}"
+                    )
+            for name, info in per_constraint.get("primitive_alternatives", {}).items():
+                if not info.get("met", True):
+                    violations.append(
+                        f"primitive_alternatives: combined count across "
+                        f"{info['names']} expected >= {info['expected_min_total']}, "
+                        f"got {info['actual_total']} ({info['actual_per_name']})"
+                    )
+            for name, info in per_constraint.get("dsp_datapath_pattern", {}).items():
+                if not info.get("met", True):
+                    violations.append(
+                        f"dsp_datapath_pattern: expected at least one inferred DSP48E1 "
+                        f"instance's mapping to match /{info['expected_pattern']}/, got "
+                        f"{info['actual_dsp_mappings']}"
+                    )
+
             note = (
                 "The previous design passed simulation/synthesis but violated hard resource "
                 "constraints: " + "; ".join(violations) + ". "
                 "Rewrite the RTL so these hard constraints are met while preserving the same "
                 "functional behavior and module interface."
             )
+
+            if timing_violated:
+                critical_path = (timing_info or {}).get("critical_path") or {}
+                breakdown = critical_path.get("breakdown") or {}
+                if breakdown:
+                    breakdown_str = ", ".join(f"{cell}x{count}" for cell, count in breakdown.items())
+                    note += (
+                        f" Critical-path diagnosis: the worst timing path traverses "
+                        f"{critical_path.get('logic_levels_total')} logic level(s) through these "
+                        f"cell types: {breakdown_str}. If the path is dominated by combinational "
+                        "logic (e.g. a long CARRY4 carry chain or a deep LUT tree) rather than "
+                        "routing, consider adding pipeline register stages, reducing combinational "
+                        "depth, or restructuring arithmetic to close timing, while preserving the "
+                        "same functional behavior."
+                    )
+
             return note, {
                 "type": "constraint_mismatch",
                 "hard_constraints": self.design_entry.get("hard_constraints", {}),
                 "per_constraint": per_constraint,
+                "timing": timing_info,
             }
 
         missing = [
@@ -789,7 +1090,7 @@ class FabricAwarePipeline:
 
         report_path = os.path.join(run_dir, "fabric_report.json")
         with open(report_path, 'w') as f:
-            json.dump(fabric_report, f, indent=2)
+            json.dump(fabric_report, f, indent=2, cls=InfEncoder)
 
         result_entry = {
             "ID": self.args.design_id,
@@ -810,6 +1111,9 @@ class FabricAwarePipeline:
             "actual_primitives": last_attempt.get("actual_primitives", {}),
             "fabric_expectations_met": last_attempt.get("fabric_expectations_met", False),
             "hard_constraints_met": last_attempt.get("hard_constraints_met", True),
+            "timing_slack_ns": last_attempt.get("timing", {}).get("slack"),
+            "critical_warnings_total": last_attempt.get("critical_warnings_total"),
+            "dsp_mapping": last_attempt.get("dsp_mapping", []),
         }
 
         output_json_path = self.args.output_json
@@ -827,7 +1131,7 @@ class FabricAwarePipeline:
                 existing = []
         existing.append(result_entry)
         with open(output_json_path, 'w') as f:
-            json.dump(existing, f, indent=2)
+            json.dump(existing, f, indent=2, cls=InfEncoder)
 
         if self.args.verbose:
             print(f"Fabric report saved to {report_path}")
@@ -842,7 +1146,7 @@ def parse_arguments():
     )
 
     parser.add_argument("--design_id", type=int, required=True,
-                       help="Design ID from Dataset/fabric_problems.json (1-5)")
+                       help="Design ID from Dataset/fabric_problems.json (1-9)")
 
     parser.add_argument("--model", type=str, default="gpt-4o",
                        help="LLM model name (e.g., gpt-4o, gemini-2.0-flash-exp)")

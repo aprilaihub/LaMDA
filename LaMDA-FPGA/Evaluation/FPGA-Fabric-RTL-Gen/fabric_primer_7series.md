@@ -307,6 +307,125 @@ SRLC32E srlc32e_inst (
 );
 ```
 
+### 10.5 RAM32X1S (structural 32 x 1 distributed RAM)
+
+`RAM32X1S` implements one 32-deep, 1-bit-wide distributed (LUT-based)
+SelectRAM: synchronous write on `WCLK`, purely combinational (asynchronous)
+read on `O`. Per Vivado's own UNISIM HDL Language Template:
+
+```verilog
+RAM32X1S #(
+   .INIT(32'h00000000),    // Initial contents of RAM
+   .IS_WCLK_INVERTED(1'b0) // Specifies active high/low WCLK
+) RAM32X1S_inst (
+   .O(O),       // RAM output
+   .A0(A0),     // RAM address[0] input
+   .A1(A1),     // RAM address[1] input
+   .A2(A2),     // RAM address[2] input
+   .A3(A3),     // RAM address[3] input
+   .A4(A4),     // RAM address[4] input
+   .D(D),       // RAM data input
+   .WCLK(WCLK), // Write clock input
+   .WE(WE)      // Write enable input
+);
+```
+
+For a WIDTH-bit-wide, 32-deep RAM, instantiate one `RAM32X1S` per output data
+bit, all sharing the same 5-bit address and write clock/enable, with `D`/`O`
+wired to bit `i` of the data-in/data-out buses:
+
+```verilog
+genvar i;
+generate
+  for (i = 0; i < WIDTH; i = i + 1) begin : ram_bits
+    RAM32X1S #(
+      .INIT(32'h00000000)
+    ) ram_bit_inst (
+      .O(dout[i]),
+      .A0(addr[0]), .A1(addr[1]), .A2(addr[2]), .A3(addr[3]), .A4(addr[4]),
+      .D(din[i]),
+      .WCLK(clk),
+      .WE(we)
+    );
+  end
+endgenerate
+```
+
+Note: this structural instantiation reports as `RAM32X1S` in Vivado's
+`report_utilization` Primitives table, whereas the equivalent idiomatic
+behavioral RTL (`reg [WIDTH-1:0] mem [0:31];` with synchronous write and
+combinational read, letting synthesis infer the same hardware) reports as
+`RAMS32` instead — the two names refer to the same underlying distributed-RAM
+hardware, reached via different Vivado code paths (structural instantiation
+vs. inference).
+
+### 10.6 RAMB18E1 (structural Block RAM, single-port synchronous read/write)
+
+`RAMB18E1` implements one 18Kb dedicated Block RAM tile in its native
+1024-deep x 18-bit-wide configuration (16 data bits + 2 parity bits per word).
+A 256 x 16 single-port memory with a **registered** (synchronous) read uses
+only a fraction of that depth/width but still maps onto exactly one
+`RAMB18E1` tile — the unused address range and parity bits simply go unused
+within the same physical primitive. Example for a design that only needs one
+read/write port (port B fully inactive):
+
+```verilog
+// 256 x 16 Single-Port Synchronous RAM using one RAMB18E1 (18-bit-wide port,
+// 1024-deep native configuration; only address values 0-255 are used, the
+// remaining depth is simply unused capacity within the same physical tile).
+// Port B is left inactive (this design only needs one read/write port).
+wire [13:0] addr_aligned = {addr, 4'b0000}; // 8-bit addr -> ADDRARDADDR[13:4] per
+                                             // UG473's 18-bit-width address alignment
+                                             // (ADDRARDADDR[3:0] tied to 0)
+
+RAMB18E1 #(
+  .RAM_MODE("TDP"),
+  .READ_WIDTH_A(18), .WRITE_WIDTH_A(18),
+  .READ_WIDTH_B(0),  .WRITE_WIDTH_B(0),
+  .DOA_REG(1),                              // Registered output on port A: matches this
+                                             // design's one-cycle synchronous read latency
+  .DOB_REG(0),
+  .INIT_A(18'h00000), .INIT_B(18'h00000),
+  .SIM_COLLISION_CHECK("ALL"),
+  .IS_CLKARDCLK_INVERTED(1'b0), .IS_CLKBWRCLK_INVERTED(1'b0),
+  .IS_ENARDEN_INVERTED(1'b0),  .IS_ENBWREN_INVERTED(1'b0),
+  .IS_RSTRAMARSTRAM_INVERTED(1'b0), .IS_RSTRAMB_INVERTED(1'b0),
+  .IS_RSTREGARSTREG_INVERTED(1'b0), .IS_RSTREGB_INVERTED(1'b0)
+) ramb18e1_inst (
+  .DOADO(dout), .DOPADOP(),
+  .DIADI(din), .DIPADIP(2'b00),
+  .ADDRARDADDR(addr_aligned),
+  .CLKARDCLK(clk),
+  .ENARDEN(1'b1),
+  .REGCEAREGCE(1'b1),
+  .RSTRAMARSTRAM(1'b0),
+  .RSTREGARSTREG(1'b0),
+  .WEA({we, we}),
+  .DOBDO(), .DOPBDOP(),
+  .DIBDI(16'b0), .DIPBDIP(2'b0),
+  .ADDRBWRADDR(14'b0),
+  .CLKBWRCLK(1'b0),
+  .ENBWREN(1'b0),
+  .REGCEB(1'b0),
+  .RSTRAMB(1'b0),
+  .RSTREGB(1'b0),
+  .WEBWE(4'b0)
+);
+```
+
+This structural instantiation reports as `RAMB18E1` in Vivado's
+`report_utilization` Primitives table directly (unlike `RAMS32`/`RAM32X1S`,
+there is no separate inferred-vs-structural name split here — the same
+`RAMB18E1`/`RAMB36E1` Ref Names are used whether the memory was structurally
+instantiated or behaviorally inferred, though a small memory like this one
+may land on either primitive depending on Vivado's own tile-packing
+heuristics, hence `RAMB18E1`/`RAMB36E1` being treated as aliases of each
+other in `check_fabric_expectations()`). `DOA_REG(1)` is required to match
+this design's registered/synchronous read timing (a purely combinational
+read would instead need `DOA_REG(0)`, but that also defeats the purpose of
+using dedicated Block RAM, since BRAM only offers registered reads without
+extra latency-adding fabric logic — see Section 7's inference idiom).
+
 ## 11. Anti-Patterns Specific to Structural Instantiation
 
 - Leaving `DSP48E1` control ports (e.g. `OPMODE`, `ALUMODE`, `CARRYINSEL`) in
@@ -348,4 +467,16 @@ SRLC32E srlc32e_inst (
   anything other than the fixed required delay when only the final tap is
   needed — use the widest fixed-delay output (`Q31`/`Q15`) instead of the
   dynamically-addressed `Q` output when the address never changes.
+- Instantiating only one `RAM32X1S` for a multi-bit-wide RAM instead of one
+  instance per output data bit (all sharing the same address/`WCLK`/`WE`) —
+  each `RAM32X1S` is only 1 bit wide, so a WIDTH-bit RAM needs WIDTH
+  instances, not one.
+- Leaving `RAMB18E1`'s unused Port B pins floating instead of explicitly
+  tying them off (`ENBWREN(1'b0)`, `DIBDI`/`DIPBDIP` to `0`, `ADDRBWRADDR`
+  to `0`, etc.) when only Port A is used — unconnected inputs on an unused
+  port can still inject `X` into simulation even though the port is
+  logically inactive. Also, misaligning `ADDRARDADDR` for the selected
+  `READ_WIDTH_A`/`WRITE_WIDTH_A` (e.g. forgetting to zero-pad the low
+  address bits for 18-bit-wide access, per Section 10.6) silently accesses
+  the wrong/aliased memory location instead of raising an error.
 

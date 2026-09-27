@@ -21,20 +21,21 @@ STYLE ?= fabric_aware
 STYLES ?= baseline fabric_aware explicit_primitive
 FEEDBACK_MODE ?= compressed
 
-# Design selection (dataset has IDs 1-5)
+# Design selection (dataset has IDs 1-13, 15-16; IDs 14 and 17 are reserved for a future phase)
 DESIGN_ID ?= 1
-ID_START ?= 1
-ID_END ?= 5
+DESIGN_IDS ?= 1 2 3 4 5 6 7 8 9 10 11 12 13 15 16
 
 # CSV / results processing parameters
 JSON_FILE ?= fabric_exp_results.json
 INPUT_CSV ?= fabric_full_results.csv
 OUTPUT_CSV ?= fabric_summary_results.csv
 COMPARISON_CSV ?= fabric_style_comparison.csv
+PLOTS_DIR ?= $(ANALYSIS_DIR)/Plots
 
 .PHONY: run_fabric_rtl_gen run_fabric_rtl_gen_all run_fabric_rtl_gen_all_styles \
         organize_outputs clean_outputs \
-        fabric_json_to_csv fabric_compress_csv fabric_generate_csv fabric_style_comparison help
+        fabric_json_to_csv fabric_compress_csv fabric_generate_csv fabric_style_comparison \
+        fabric_plot_results help
 
 # Run the pipeline for a single design
 # Usage: make MODEL=gpt-4o DESIGN_ID=1 run_fabric_rtl_gen
@@ -70,7 +71,7 @@ run_fabric_rtl_gen:
 	)
 	@echo "✅ FPGA-Fabric-RTL-Gen pipeline completed!"
 
-# Run the pipeline across all 5 mini-benchmark designs
+# Run the pipeline across all 9 mini-benchmark designs
 # Usage: make MODEL=gpt-4o run_fabric_rtl_gen_all
 run_fabric_rtl_gen_all:
 	@if [ -z "$(MODEL)" ]; then \
@@ -78,12 +79,12 @@ run_fabric_rtl_gen_all:
 		exit 1; \
 	fi
 	@echo "============================================================"
-	@echo "Running FPGA-Fabric-RTL-Gen Pipeline on all designs ($(ID_START)-$(ID_END))"
+	@echo "Running FPGA-Fabric-RTL-Gen Pipeline on all designs ($(DESIGN_IDS))"
 	@echo "Model: $(MODEL)"
 	@echo "Style: $(STYLE)"
 	@echo "============================================================"
 	@( \
-		for design_id in $(shell seq $(ID_START) $(ID_END)); do \
+		for design_id in $(DESIGN_IDS); do \
 			echo ""; \
 			echo "▶ Design ID $$design_id using $(MODEL) (style: $(STYLE))"; \
 			cd $(ROOT_DIR) && $(PYTHON) -B Evaluation/FPGA-Fabric-RTL-Gen/Run.py \
@@ -114,12 +115,12 @@ run_fabric_rtl_gen_all_styles:
 		exit 1; \
 	fi
 	@echo "============================================================"
-	@echo "Running FPGA-Fabric-RTL-Gen Pipeline on all designs ($(ID_START)-$(ID_END)) x all styles ($(STYLES))"
+	@echo "Running FPGA-Fabric-RTL-Gen Pipeline on all designs ($(DESIGN_IDS)) x all styles ($(STYLES))"
 	@echo "Model: $(MODEL)"
 	@echo "============================================================"
 	@( \
 		for style in $(STYLES); do \
-			for design_id in $(shell seq $(ID_START) $(ID_END)); do \
+			for design_id in $(DESIGN_IDS); do \
 				echo ""; \
 				echo "▶ Design ID $$design_id using $(MODEL) (style: $$style)"; \
 				cd $(ROOT_DIR) && $(PYTHON) -B Evaluation/FPGA-Fabric-RTL-Gen/Run.py \
@@ -243,6 +244,26 @@ fabric_style_comparison:
 	)
 	@echo "✅ Style comparison CSV generated at $(FABRIC_EVAL_ROOT)/$(COMPARISON_CSV)"
 
+# Generate summary plots (PNG) from the aggregated CSVs using Analysis/FabricAnalysis.py's
+# FabricPlotter class. Requires INPUT_CSV (fabric_json_to_csv output) and, for the style
+# comparison heatmap, COMPARISON_CSV (fabric_style_comparison output) to already exist.
+# Usage: make fabric_generate_csv fabric_style_comparison fabric_plot_results
+fabric_plot_results:
+	@if [ ! -f "$(FABRIC_EVAL_ROOT)/$(INPUT_CSV)" ]; then \
+		echo "❌ Error: CSV file $(FABRIC_EVAL_ROOT)/$(INPUT_CSV) not found. Run fabric_generate_csv first."; \
+		exit 1; \
+	fi
+	@echo "============================================================"
+	@echo "Generating FabricPlotter summary plots"
+	@echo "Input: $(INPUT_CSV) / $(COMPARISON_CSV)"
+	@echo "Output directory: $(PLOTS_DIR)"
+	@echo "============================================================"
+	@( \
+		cd $(FABRIC_EVAL_ROOT) && $(PYTHON) -c "from Analysis.FabricAnalysis import FabricPlotter; \
+			FabricPlotter().plot_all('$(INPUT_CSV)', '$(COMPARISON_CSV)', '$(PLOTS_DIR)')" \
+	)
+	@echo "✅ Plots generated in $(PLOTS_DIR)"
+
 # Display help
 help:
 	@echo "============================================================"
@@ -279,12 +300,15 @@ help:
 	@echo "                            (requires JSON_FILE with entries from multiple --style runs)"
 	@echo "                            Usage: make JSON_FILE=fabric_exp_results.json fabric_style_comparison"
 	@echo ""
+	@echo "  fabric_plot_results     - Generate summary PNG plots (FabricPlotter) from the CSVs"
+	@echo "                            Usage: make fabric_generate_csv fabric_style_comparison fabric_plot_results"
+	@echo ""
 	@echo "  help                    - Display this help message"
 	@echo ""
 	@echo "Parameters:"
 	@echo "  MODEL           - LLM model to use (required, e.g., gpt-4o, gemini-2.0-flash-exp)"
-	@echo "  DESIGN_ID       - Dataset design ID for a single run (default: 1, range: 1-5)"
-	@echo "  ID_START/ID_END - Design ID range for run_fabric_rtl_gen_all(_styles) (default: 1-5)"
+	@echo "  DESIGN_ID       - Dataset design ID for a single run (default: 1, valid: 1-13, 15-16)"
+	@echo "  DESIGN_IDS      - Design ID list for run_fabric_rtl_gen_all(_styles) (default: 1-13, 15-16; 14 and 17 are reserved)"
 	@echo "  MAX_TOKENS      - Maximum tokens for generation (default: 3000)"
 	@echo "  TEMPERATURE     - Temperature for sampling (default: 1.0)"
 	@echo "  TOP_P           - Top-p for sampling (default: 1.0)"
@@ -302,6 +326,7 @@ help:
 	@echo "  INPUT_CSV       - Input CSV file name (default: fabric_full_results.csv)"
 	@echo "  OUTPUT_CSV      - Output CSV file name (default: fabric_summary_results.csv)"
 	@echo "  COMPARISON_CSV  - Style comparison CSV file name (default: fabric_style_comparison.csv)"
+	@echo "  PLOTS_DIR       - Output directory for fabric_plot_results PNGs (default: Analysis/Plots)"
 	@echo ""
 	@echo "Examples:"
 	@echo "  make MODEL=gpt-4o DESIGN_ID=3 STYLE=explicit_primitive run_fabric_rtl_gen"

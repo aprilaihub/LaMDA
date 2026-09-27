@@ -335,6 +335,33 @@ def build_primitive_instantiation_prompt(base_design_prompt, primitive_hint=None
     return " ".join(parts)
 
 
+
+# Some primitives have two distinct Ref Names in Vivado's report_utilization
+# depending on HOW the underlying hardware ended up in the netlist:
+#   - the UNISIM name used for manual/structural instantiation (explicit_primitive
+#     style), vs.
+#   - the synthesizer-assigned name used when the same hardware is inferred from
+#     idiomatic behavioral RTL (fabric_aware style).
+# RAMS32 (inferred distributed RAM) / RAM32X1S (structurally-instantiated 32x1
+# distributed RAM) are one confirmed example -- both map to the same physical
+# SLICEM-as-SelectRAM configuration, so either name should satisfy a design's
+# distributed-RAM expected_primitives entry regardless of which generation
+# style produced it.
+PRIMITIVE_ALIASES = {
+    "RAMS32": ("RAMS32", "RAM32X1S"),
+    "RAM32X1S": ("RAM32X1S", "RAMS32"),
+    # RAMB18E1 / RAMB36E1: a small memory (e.g. a few Kbit) that fits well
+    # within a single 18Kb tile can still end up packed into either primitive
+    # depending on Vivado's internal block-RAM tile-selection heuristics, even
+    # when the RTL and generation style are unchanged -- unlike the
+    # RAMS32/RAM32X1S case above, this is not about inferred-vs-structural
+    # naming, it's the synthesizer's own block-RAM sizing choice. Either
+    # primitive satisfies a design's block-RAM expected_primitives entry.
+    "RAMB18E1": ("RAMB18E1", "RAMB36E1"),
+    "RAMB36E1": ("RAMB36E1", "RAMB18E1"),
+}
+
+
 def check_fabric_expectations(actual_primitives, expected_primitives):
     """
     Compare observed primitive usage counts against the expected minimums.
@@ -343,7 +370,9 @@ def check_fabric_expectations(actual_primitives, expected_primitives):
         actual_primitives: dict mapping primitive name (e.g. "CARRY4") to the
             count reported by Vivado's utilization report.
         expected_primitives: dict mapping primitive name to the minimum count
-            required for the design to be considered fabric-aware.
+            required for the design to be considered fabric-aware. A name
+            present in PRIMITIVE_ALIASES is matched against the sum of all of
+            its aliases in actual_primitives (see PRIMITIVE_ALIASES above).
 
     Returns:
         tuple(bool, dict): (all_met, per_primitive_results) where
@@ -355,7 +384,8 @@ def check_fabric_expectations(actual_primitives, expected_primitives):
     all_met = True
 
     for primitive, expected_min in expected_primitives.items():
-        actual_count = actual_primitives.get(primitive, 0)
+        alias_names = PRIMITIVE_ALIASES.get(primitive, (primitive,))
+        actual_count = sum(actual_primitives.get(name, 0) for name in alias_names)
         met = actual_count >= expected_min
         per_primitive_results[primitive] = {
             "expected_min": expected_min,
