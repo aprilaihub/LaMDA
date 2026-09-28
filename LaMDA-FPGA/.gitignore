@@ -11,6 +11,7 @@ Evaluation/FPGA-Fabric-RTL-Gen/Outputs/
 Evaluation/FPGA-Fabric-RTL-Gen/fabric_exp_results.json
 Evaluation/FPGA-Fabric-RTL-Gen/Analysis/test_fabric_parser.py
 Evaluation/FPGA-Fabric-RTL-Gen/Changelog/
+Evaluation/FPGA-Fabric-RTL-Gen/doc/
 clockInfo.txt
 tight_setup_hold_pins.txt
 Tests/Outputs/

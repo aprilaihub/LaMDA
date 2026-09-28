@@ -12,7 +12,7 @@ This module does not modify, import from, or depend on `Evaluation/ResBench/` or
 
 ## 🎯 Overview
 
-The pipeline, for each of the 15 designs:
+The pipeline, for each of the 16 designs:
 
 1. **Injects fabric knowledge** into the LLM system prompt via [`fabric_primer_7series.md`](fabric_primer_7series.md) — a primer covering CLB/slice basics, LUT6/LUT5, CARRY4, DSP48E1, MUXF7/MUXF8, SRLC32E/SRL16E, RAMB18E1/RAMB36E1, and (for the `explicit_primitive` style) structural instantiation templates for `CARRY4`, `DSP48E1`, `MUXF7`/`MUXF8`, `SRLC32E`, `RAM32X1S`, and `RAMB18E1`. Skipped entirely for the `baseline` style.
 2. **Generates** a Verilog design for the target module using a **merged prompt architecture**: output-format and Verilog coding rules live in the pipeline-local system prompt, then a style-specific fabric guidance suffix is appended once per run (none for `baseline`; generic fabric-efficiency reminder + per-design `fabric_hint` for `fabric_aware`; structural-instantiation reminder + per-design `primitive_hint` for `explicit_primitive`). The per-attempt user prompt stays focused on dynamic content (problem statement and corrective retry note, if any).
@@ -195,7 +195,7 @@ Every attempt also writes its own `Design_Files`-sibling `llm_interaction.json` 
 
 ## 🗂️ Dataset
 
-[`Dataset/fabric_problems.json`](Dataset/fabric_problems.json) contains 15 designs, each with a natural-language problem spec, a fixed module header, a hand-authored self-checking testbench (and clock constraint where applicable), the primitive(s) it is expected to exercise, a fabric-specific coding hint (`fabric_hint`, used by the `fabric_aware` style), and a structural wiring hint (`primitive_hint`, used by the `explicit_primitive` style).
+[`Dataset/fabric_problems.json`](Dataset/fabric_problems.json) contains 16 designs, each with a natural-language problem spec, a fixed module header, a hand-authored self-checking testbench (and clock constraint where applicable), the primitive(s) it is expected to exercise, a fabric-specific coding hint (`fabric_hint`, used by the `fabric_aware` style), and a structural wiring hint (`primitive_hint`, used by the `explicit_primitive` style).
 
 | ID | Module | Primary Primitive | Expected Primitives | Hard Constraints |
 |----|--------|--------------------|----------------------|-------------------|
@@ -212,10 +212,11 @@ Every attempt also writes its own `Design_Files`-sibling `llm_interaction.json` 
 | 11 | `wide_reduce_flexible_arch` | `CARRY4` or `DSP48E1` | *(none — checked via `primitive_alternatives`)* | `primitive_alternatives: {CARRY4,DSP48E1} total >= 2`, `max_critical_warnings: 0` |
 | 12 | `mult_16x16_dsp_registered` (clocked) | `DSP48E1` | `DSP48E1 >= 1` | `FF_TOTAL <= 32`, `max_critical_warnings: 0`, `PREG: 1` |
 | 13 | `mult_16x16_no_dsp_tight_timing` (clocked, tight 8 ns period) | `CARRY4` | `CARRY4 >= 1` | `forbidden: DSP48E1`, `max_critical_warnings: 0`, `timing.min_slack_ns: 0.0` |
+| 14 | `mult_16x16_dsp_combinational` | `DSP48E1` | `DSP48E1 >= 1` | `max_critical_warnings: 0` |
 | 15 | `ram128x32_distributed_pressure` (clocked) | `RAM128X1S` | `RAM128X1S >= 32` | `RAMB18E1 <= 0`, `RAMB36E1 <= 0`, `LUT_USED <= 220` |
 | 16 | `ram128x32_bram_pressure` (clocked) | `RAMB36E1` | `RAMB36E1 >= 1` | `FF_TOTAL <= 64` |
 
-Designs #3, #5, #6, #9, #10, #12, #13, #15, and #16 are clocked; #3/#5/#6/#10/#12/#15/#16 target a 10 ns period, #9 deliberately targets a tight 2.5 ns (400 MHz) period, and #13 targets a tight 8 ns (125 MHz) period — both #9 and #13 exercise the timing-feedback loop (see [Timing/Critical-Path Ablation](#-timingcritical-path-ablation) below). Design #11 is fully combinational (no clock). IDs #14 and #17 are reserved for a future phase (latency-focused and expected-infeasible designs, respectively) and are intentionally absent from this dataset for now.
+Designs #3, #5, #6, #9, #10, #12, #13, #15, and #16 are clocked; #3/#5/#6/#10/#12/#15/#16 target a 10 ns period, #9 deliberately targets a tight 2.5 ns (400 MHz) period, and #13 targets a tight 8 ns (125 MHz) period — both #9 and #13 exercise the timing-feedback loop (see [Timing/Critical-Path Ablation](#-timingcritical-path-ablation) below). Designs #11 and #14 are fully combinational (no clock). ID #17 remains reserved for a future expected-infeasible design.
 
 > **Design #6 note**: `expected_primitives` requires `RAMS32 >= 8` for `ram32x8_distributed`. `RAMS32`/`RAM32X1S` are two Vivado `report_utilization` `Ref Name`s for the *same* underlying distributed-RAM hardware, reached via two different code paths: `RAMS32` ("Distributed Memory" functional category) is the name reported when the RAM is **behaviorally inferred** (`fabric_aware` style's idiomatic `reg [7:0] mem [0:31]` coding style — confirmed via a live synthesis run), while `RAM32X1S` is the name reported when it is **structurally instantiated** by name (`explicit_primitive` style, per the RAM32X1S template in `fabric_primer_7series.md` — 8 instances, one per output data bit, confirmed via Vivado's own UNISIM HDL Language Template). Because the two styles produce different `Ref Name`s for an equally-correct design, `check_fabric_expectations()` in [utils.py](../../utils.py) treats `RAMS32`/`RAM32X1S` as aliases of each other (see `PRIMITIVE_ALIASES`) so either name satisfies the `RAMS32 >= 8` check regardless of which style produced it. (An earlier version of this dataset entry used `RAM32X1S` as the sole expected key with no alias handling, which caused false-negative fabric-mismatch feedback on an otherwise-correct `fabric_aware` design.) This is checked alongside the `resource_caps` constraint (`RAMB18E1`/`RAMB36E1` must both be `0`, i.e. the RAM must NOT be block-RAM-mapped).
 

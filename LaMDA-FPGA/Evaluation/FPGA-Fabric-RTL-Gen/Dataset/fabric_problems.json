@@ -252,6 +252,22 @@
       "primitive_hint": "Do not structurally instantiate a DSP48E1. Generate the 16 partial products and sum them using an explicit adder tree structurally instantiating CARRY4 primitives (per the CARRY4 template in the FPGA fabric knowledge above), organized as a balanced binary reduction tree (pairwise partial-product adds combined level by level) rather than a single flat ripple-carry chain across all 16 partial products, to minimize the number of series CARRY4 stages on the critical path and meet the tight clock constraint."
     },
     {
+      "ID": 14,
+      "module": "mult_16x16_dsp_combinational",
+      "primary_primitive": "DSP48E1",
+      "Problem": "Design a 16x16-bit unsigned combinational multiplier (zero-latency, no clock).\n\nModule Name: mult_16x16_dsp_combinational\nInputs:\n  - a[15:0]: first unsigned operand\n  - b[15:0]: second unsigned operand\nOutputs:\n  - product[31:0]: combinational product output\n\nThe design must compute product = a * b as purely combinational logic (no pipeline/output register, no clock, no reset).",
+      "Module header": "module mult_16x16_dsp_combinational (\n    input  [15:0] a,\n    input  [15:0] b,\n    output [31:0] product\n);",
+      "Testbench": "`timescale 1ns/1ps\n\nmodule mult_16x16_dsp_combinational_tb;\n    reg  [15:0] a, b;\n    wire [31:0] product;\n    integer errors = 0;\n    reg [31:0] expected_product;\n\n    mult_16x16_dsp_combinational uut (\n        .a(a),\n        .b(b),\n        .product(product)\n    );\n\n    task run_test;\n        input [15:0] test_a;\n        input [15:0] test_b;\n        begin\n            a = test_a;\n            b = test_b;\n            #10;\n            expected_product = test_a * test_b;\n            if (product === expected_product) begin\n                $display(\" a=%0d b=%0d | product=%0d | PASS\", test_a, test_b, product);\n            end else begin\n                $display(\" a=%0d b=%0d | product=%0d (expected %0d) | FAIL\", test_a, test_b, product, expected_product);\n                errors = errors + 1;\n            end\n        end\n    endtask\n\n    initial begin\n        $display(\"==========Testbench results==========\");\n        $display(\"=====================================\");\n\n        run_test(16'd0, 16'd0);\n        run_test(16'd1, 16'd1);\n        run_test(16'hFFFF, 16'hFFFF);\n        run_test(16'hFFFF, 16'd1);\n        run_test(16'd1234, 16'd5678);\n        run_test(16'hAAAA, 16'h5555);\n        run_test(16'd300, 16'd300);\n\n        $display(\"-------------------------------------\");\n        if (errors == 0)\n            $display(\"All tests passed\");\n        else\n            $display(\"Some tests failed\");\n        $display(\"=====================================\");\n        $finish;\n    end\nendmodule",
+      "expected_primitives": {
+        "DSP48E1": 1
+      },
+      "hard_constraints": {
+        "max_critical_warnings": 0
+      },
+      "fabric_hint": "Use direct full-vector unsigned multiplication (product = a * b) with minimal surrounding logic so synthesis can infer a single DSP48E1 for 16x16 multiplication.",
+      "primitive_hint": "Explicitly instantiate one DSP48E1 configured for combinational multiplication with PREG disabled (no output register), mapping operands into A/B ports and wiring P to product[31:0] with appropriate zero-extension/truncation for unused upper bits."
+    },
+    {
       "ID": 15,
       "module": "ram128x32_distributed_pressure",
       "primary_primitive": "RAM128X1S",
