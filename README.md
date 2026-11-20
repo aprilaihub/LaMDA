@@ -143,14 +143,20 @@ Refer to each feature README for exact directory conventions.
 If you use LaMDA in your research, please cite:
 
 ```bibtex
-@misc{sestito2026LaMDA,
-  title={A flexible language model-assisted electronic design automation framework},
-  author={Cristian Sestito and Panagiota Kontou and Pratibha Verma and Atish Dixit and Alexandros D. Keros and Michael O'Boyle and Christos-Savvas Bouganis and Themis Prodromakis},
-  year={2026},
-  eprint={2601.14098},
-  archivePrefix={arXiv},
-  primaryClass={eess.SY},
-  url={https://arxiv.org/abs/2601.14098}
+@article{LaMDA,
+  author  = {Sestito, Cristian and
+             Kontou, Panagiota and
+             Verma, Pratibha and
+             Dixit, Atish and
+             Keros, Alexandros D. and
+             O'Boyle, Michael and
+             Bouganis, Christos-Savvas and
+             Prodromakis, Themis},
+  title   = {A flexible language model-assisted electronic design automation framework},
+  journal = {Scientific Reports},
+  year    = {2026},
+  doi     = {10.1038/s41598-026-75880-8},
+  url     = {https://doi.org/10.1038/s41598-026-75880-8}
 }
 ```
 
