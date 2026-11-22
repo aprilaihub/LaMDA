@@ -79,6 +79,7 @@ def _parse_bool_env(name, default=False):
 def _runtime_config():
     return {
         "model": os.getenv("TEST_MODEL", "gpt-4o"),
+        "provider": os.getenv("TEST_PROVIDER") or None,
         "max_tokens": int(os.getenv("TEST_MAX_TOKENS", "3000")),
         "temperature": float(os.getenv("TEST_TEMPERATURE", "1.0")),
         "top_p": float(os.getenv("TEST_TOP_P", "1.0")),
@@ -120,7 +121,7 @@ def _get_llm_client(ctx):
         return ctx["llm_client"]
     try:
         cfg = _runtime_config()
-        ctx["llm_client"] = LLMClient(cfg["model"])
+        ctx["llm_client"] = LLMClient(cfg["model"], cfg["provider"])
     except Exception as exc:
         pytest.skip(f"LLM setup unavailable: {exc}")
     return ctx["llm_client"]
@@ -397,6 +398,7 @@ class TestPipelineFlow:
 def _parse_cli_args():
     parser = argparse.ArgumentParser(description="Run the test pipeline with configurable runtime parameters.")
     parser.add_argument("--model", default="gpt-4o", help="LLM model to use for generation.")
+    parser.add_argument("--provider", default=None, help="LLM provider (openai, openrouter, elm, gemini, anthropic). Defaults to $LLM_PROVIDER.")
     parser.add_argument("--max_tokens", type=int, default=3000, help="Max tokens for LLM generation.")
     parser.add_argument("--temperature", type=float, default=1.0, help="Sampling temperature for LLM generation.")
     parser.add_argument("--top_p", type=float, default=1.0, help="Top-p value for LLM generation.")
@@ -409,6 +411,7 @@ if __name__ == "__main__":
     args, extra_pytest_args = _parse_cli_args()
 
     os.environ["TEST_MODEL"] = args.model
+    os.environ["TEST_PROVIDER"] = args.provider or ""
     os.environ["TEST_MAX_TOKENS"] = str(args.max_tokens)
     os.environ["TEST_TEMPERATURE"] = str(args.temperature)
     os.environ["TEST_TOP_P"] = str(args.top_p)

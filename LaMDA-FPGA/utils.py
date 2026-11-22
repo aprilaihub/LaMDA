@@ -223,11 +223,8 @@ def check_simulation_passed(sim_log_path, verbose=False):
 
 
 # ---------------------------------------------------------------------------
-# FPGA fabric-awareness helpers (used by Evaluation/FPGA-Fabric-RTL-Gen)
+# FPGA fabric-awareness helpers (used by Evaluation/FPGA-RTL-Transform)
 # ---------------------------------------------------------------------------
-
-FABRIC_KNOWLEDGE_HEADER = "FPGA FABRIC KNOWLEDGE (Xilinx 7-Series)"
-
 
 def load_fabric_primer(primer_path):
     """
@@ -246,24 +243,12 @@ def load_fabric_primer(primer_path):
         return f.read()
 
 
-def build_fabric_system_prompt(base_system_prompt, primer_text):
+def append_prompt_section(system_prompt, header, text):
     """
-    Extend a base system prompt with Xilinx 7-series fabric knowledge.
-
-    Args:
-        base_system_prompt: The existing system prompt string (e.g. SYSTEM_PROMPT).
-        primer_text: Fabric primer text as returned by load_fabric_primer().
-
-    Returns:
-        str: The combined system prompt with a clearly delimited fabric
-             knowledge section appended.
+    Append a clearly delimited section ("# HEADER ... # END HEADER") to a system
+    prompt. Used by Evaluation/FPGA-RTL-Transform to inject the per-module primers.
     """
-    return (
-        f"{base_system_prompt}\n\n"
-        f"# {FABRIC_KNOWLEDGE_HEADER}\n"
-        f"{primer_text.strip()}\n"
-        f"# END {FABRIC_KNOWLEDGE_HEADER}"
-    )
+    return f"{system_prompt}\n\n# {header}\n{text.strip()}\n# END {header}"
 
 
 def build_fabric_design_prompt(base_design_prompt, fabric_hint=None):
@@ -293,106 +278,3 @@ def build_fabric_design_prompt(base_design_prompt, fabric_hint=None):
     if hint_text:
         parts.append(hint_text)
     return " ".join(parts)
-
-
-def build_primitive_instantiation_prompt(base_design_prompt, primitive_hint=None):
-    """
-    Extend a base design prompt to require explicit Xilinx primitive instantiation.
-
-    Unlike build_fabric_design_prompt() (which only nudges coding style so the
-    synthesis tool infers primitives on its own), this variant instructs the
-    LLM to directly instantiate the target UNISIM primitive(s) (e.g. CARRY4,
-    DSP48E1, MUXF7/MUXF8, SRLC32E) by name, wiring their ports explicitly. It
-    is intended to be paired with a system prompt that includes the fabric
-    primer's "Structural Instantiation Templates" section, and with a
-    per-design `primitive_hint` describing exactly how to wire the primitive
-    for that design.
-
-    Args:
-        base_design_prompt: The existing design-instruction prompt string
-            (e.g. DESIGN_PROMPT).
-        primitive_hint: Optional short guidance string describing which
-            primitive(s) to instantiate and how to wire them for this
-            specific design (e.g. "chain 8x CARRY4 instances for the 32-bit
-            adder"). If None, only a generic structural-instantiation
-            instruction is appended.
-
-    Returns:
-        str: The combined design prompt.
-    """
-    structural_reminder = (
-        "Write RTL that explicitly instantiates the target Xilinx 7-Series UNISIM "
-        "primitive(s) by name (e.g. CARRY4, DSP48E1, MUXF7, MUXF8, SRLC32E), wiring "
-        "their ports directly, following the 'Structural Instantiation Templates' "
-        "reference in the FPGA fabric knowledge above. Do not rely solely on generic "
-        "operators (+, *, case) and hope the synthesis tool infers the primitive; "
-        "instantiate it structurally."
-    )
-    hint_text = primitive_hint.strip() if primitive_hint else ""
-    parts = [base_design_prompt.strip(), structural_reminder]
-    if hint_text:
-        parts.append(hint_text)
-    return " ".join(parts)
-
-
-
-# Some primitives have two distinct Ref Names in Vivado's report_utilization
-# depending on HOW the underlying hardware ended up in the netlist:
-#   - the UNISIM name used for manual/structural instantiation (explicit_primitive
-#     style), vs.
-#   - the synthesizer-assigned name used when the same hardware is inferred from
-#     idiomatic behavioral RTL (fabric_aware style).
-# RAMS32 (inferred distributed RAM) / RAM32X1S (structurally-instantiated 32x1
-# distributed RAM) are one confirmed example -- both map to the same physical
-# SLICEM-as-SelectRAM configuration, so either name should satisfy a design's
-# distributed-RAM expected_primitives entry regardless of which generation
-# style produced it.
-PRIMITIVE_ALIASES = {
-    "RAMS32": ("RAMS32", "RAM32X1S"),
-    "RAM32X1S": ("RAM32X1S", "RAMS32"),
-    # RAMB18E1 / RAMB36E1: a small memory (e.g. a few Kbit) that fits well
-    # within a single 18Kb tile can still end up packed into either primitive
-    # depending on Vivado's internal block-RAM tile-selection heuristics, even
-    # when the RTL and generation style are unchanged -- unlike the
-    # RAMS32/RAM32X1S case above, this is not about inferred-vs-structural
-    # naming, it's the synthesizer's own block-RAM sizing choice. Either
-    # primitive satisfies a design's block-RAM expected_primitives entry.
-    "RAMB18E1": ("RAMB18E1", "RAMB36E1"),
-    "RAMB36E1": ("RAMB36E1", "RAMB18E1"),
-}
-
-
-def check_fabric_expectations(actual_primitives, expected_primitives):
-    """
-    Compare observed primitive usage counts against the expected minimums.
-
-    Args:
-        actual_primitives: dict mapping primitive name (e.g. "CARRY4") to the
-            count reported by Vivado's utilization report.
-        expected_primitives: dict mapping primitive name to the minimum count
-            required for the design to be considered fabric-aware. A name
-            present in PRIMITIVE_ALIASES is matched against the sum of all of
-            its aliases in actual_primitives (see PRIMITIVE_ALIASES above).
-
-    Returns:
-        tuple(bool, dict): (all_met, per_primitive_results) where
-            per_primitive_results maps each expected primitive name to a dict
-            {"expected_min": int, "actual": int, "met": bool}.
-    """
-    actual_primitives = actual_primitives or {}
-    per_primitive_results = {}
-    all_met = True
-
-    for primitive, expected_min in expected_primitives.items():
-        alias_names = PRIMITIVE_ALIASES.get(primitive, (primitive,))
-        actual_count = sum(actual_primitives.get(name, 0) for name in alias_names)
-        met = actual_count >= expected_min
-        per_primitive_results[primitive] = {
-            "expected_min": expected_min,
-            "actual": actual_count,
-            "met": met,
-        }
-        if not met:
-            all_met = False
-
-    return all_met, per_primitive_results

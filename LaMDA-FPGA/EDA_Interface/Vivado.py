@@ -13,6 +13,10 @@ class VivadoInterface:
     
     def __init__(self):
         self.vivado_path = os.getenv("VIVADO_PATH")
+        # Keep simulation bounded to avoid hanging forever when a testbench
+        # accidentally never reaches $finish. Override as needed, e.g.:
+        #   export VIVADO_SIM_RUNTIME=20000ns
+        self.sim_runtime = os.getenv("VIVADO_SIM_RUNTIME", "10000ns")
         self._validate_vivado_path()
     
     def _validate_vivado_path(self):
@@ -91,6 +95,10 @@ class VivadoInterface:
             # Set the top module for simulation
             set_property top $tb_module [get_filesets sim_1]
 
+            # Use a bounded runtime to avoid infinite hangs while still giving
+            # long enough time for the fixed self-checking testbench to finish.
+            set_property -name {{xsim.simulate.runtime}} -value {{{self.sim_runtime}}} -objects [get_filesets sim_1]
+
             # Launch the simulation (behavioral)
             launch_simulation -mode behavioral
 
@@ -124,6 +132,21 @@ class VivadoInterface:
             # Generate reports
             report_timing -file $project_dir/reports/synthesis/timing_report.txt
             report_utilization -file $project_dir/reports/synthesis/utilization_report.txt
+
+            # Additional reports (best effort: a failing report must not fail the flow)
+            # Per-module utilization: tells which part of the hierarchy (PE array, memories, controller) costs what
+            catch {{report_utilization -hierarchical -hierarchical_depth 3 -file $project_dir/reports/synthesis/hier_utilization.txt}}
+            catch {{report_timing_summary -file $project_dir/reports/synthesis/timing_summary.txt}}
+            catch {{report_pulse_width -file $project_dir/reports/synthesis/pulse_width.txt}}
+            catch {{report_timing -max_paths 5 -nworst 1 -unique_pins -file $project_dir/reports/synthesis/timing_paths.txt}}
+            catch {{report_design_analysis -file $project_dir/reports/synthesis/design_analysis.txt}}
+            catch {{report_high_fanout_nets -timing -load_types -max_nets 10 -file $project_dir/reports/synthesis/high_fanout.txt}}
+            catch {{report_control_sets -verbose -file $project_dir/reports/synthesis/control_sets.txt}}
+            # Research record (stored for analysis, not yet used as feedback): design rule / methodology checks
+            # and Vivado's own QoR suggestions
+            catch {{report_methodology -file $project_dir/reports/synthesis/methodology.txt}}
+            catch {{report_drc -file $project_dir/reports/synthesis/drc.txt}}
+            catch {{report_qor_suggestions -file $project_dir/reports/synthesis/qor_suggestions.txt}}
 
             # Exit Vivado
             exit
@@ -161,6 +184,26 @@ class VivadoInterface:
             report_timing -file $project_dir/reports/implementation/timing_report.txt
             report_utilization -file $project_dir/reports/implementation/utilization_report.txt
             report_power -file $project_dir/reports/implementation/power_report.txt
+
+            # Additional reports (best effort: a failing report must not fail the flow)
+            # Per-module utilization: tells which part of the hierarchy (PE array, memories, controller) costs what
+            catch {{report_utilization -hierarchical -hierarchical_depth 3 -file $project_dir/reports/implementation/hier_utilization.txt}}
+            catch {{report_timing_summary -file $project_dir/reports/implementation/timing_summary.txt}}
+            catch {{report_pulse_width -file $project_dir/reports/implementation/pulse_width.txt}}
+            catch {{report_timing -max_paths 5 -nworst 1 -unique_pins -file $project_dir/reports/implementation/timing_paths.txt}}
+            catch {{report_design_analysis -file $project_dir/reports/implementation/design_analysis.txt}}
+            catch {{report_high_fanout_nets -timing -load_types -max_nets 10 -file $project_dir/reports/implementation/high_fanout.txt}}
+            catch {{report_control_sets -verbose -file $project_dir/reports/implementation/control_sets.txt}}
+            # Research record (stored for analysis, not yet used as feedback): hold paths, clock resources,
+            # congestion / complexity (Rent exponent, average fanout), routing status, methodology / DRC / QoR hints
+            catch {{report_timing -delay_type min -max_paths 3 -nworst 1 -unique_pins -file $project_dir/reports/implementation/hold_paths.txt}}
+            catch {{report_clock_utilization -file $project_dir/reports/implementation/clock_utilization.txt}}
+            catch {{report_design_analysis -congestion -file $project_dir/reports/implementation/congestion.txt}}
+            catch {{report_design_analysis -complexity -file $project_dir/reports/implementation/complexity.txt}}
+            catch {{report_route_status -file $project_dir/reports/implementation/route_status.txt}}
+            catch {{report_methodology -file $project_dir/reports/implementation/methodology.txt}}
+            catch {{report_drc -file $project_dir/reports/implementation/drc.txt}}
+            catch {{report_qor_suggestions -file $project_dir/reports/implementation/qor_suggestions.txt}}
 
             # Exit Vivado
             exit

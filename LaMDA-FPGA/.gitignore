@@ -7,12 +7,17 @@ Evaluation/ResBench/Analysis/experiments/
 Evaluation/ResBench/Analysis/exp_*.json
 Evaluation/ResBench/Analysis/__pycache__
 Evaluation/ResBench/Outputs/
-Evaluation/FPGA-Fabric-RTL-Gen/Outputs/
-Evaluation/FPGA-Fabric-RTL-Gen/fabric_exp_results.json
-Evaluation/FPGA-Fabric-RTL-Gen/Analysis/test_fabric_parser.py
-Evaluation/FPGA-Fabric-RTL-Gen/Changelog/
-Evaluation/FPGA-Fabric-RTL-Gen/doc/
+# FPGA-RTL-Transform: generated runs, local-only material (private notes, history, tests) and tool caches
+Evaluation/FPGA-RTL-Transform/Outputs/
+Evaluation/FPGA-RTL-Transform/Runs/
+Evaluation/FPGA-RTL-Transform/Changelog/
+Evaluation/FPGA-RTL-Transform/doc/
+Evaluation/FPGA-RTL-Transform/Legacy/
+Evaluation/FPGA-RTL-Transform/Tests/
+Evaluation/FPGA-RTL-Transform/Dataset/src/
+.pytest_cache/
 clockInfo.txt
+hs_err_pid*.log
 tight_setup_hold_pins.txt
 Tests/Outputs/
 .env

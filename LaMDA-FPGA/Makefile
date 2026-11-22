@@ -21,12 +21,18 @@ check_env:
 	@echo "OPENAI_API_KEY: $${OPENAI_API_KEY:+✅ Set}$${OPENAI_API_KEY:-❌ Not set}"
 	@echo "GEMINI_API_KEY: $${GEMINI_API_KEY:+✅ Set}$${GEMINI_API_KEY:-❌ Not set}"
 	@echo "OPENROUTER_API_KEY: $${OPENROUTER_API_KEY:+✅ Set}$${OPENROUTER_API_KEY:-❌ Not set}"
+	@echo "ELM_API_KEY: $${ELM_API_KEY:+✅ Set}$${ELM_API_KEY:-❌ Not set}"
+	@echo "ANTHROPIC_API_KEY: $${ANTHROPIC_API_KEY:+✅ Set}$${ANTHROPIC_API_KEY:-❌ Not set}"
+	@echo "LLM_PROVIDER: $${LLM_PROVIDER:-❌ Not set (openai, openrouter, elm, gemini or anthropic)}"
 	@echo ""
 	@if [ -z "$${VIVADO_PATH}" ]; then \
 		echo "⚠️  VIVADO_PATH is not set"; \
 	fi
-	@if [ -z "$${OPENAI_API_KEY}" ] && [ -z "$${GEMINI_API_KEY}" ] && [ -z "$${OPENROUTER_API_KEY}" ]; then \
-		echo "⚠️  No API keys set. Set at least OPENAI_API_KEY, GEMINI_API_KEY, or OPENROUTER_API_KEY"; \
+	@if [ -z "$${OPENAI_API_KEY}" ] && [ -z "$${GEMINI_API_KEY}" ] && [ -z "$${OPENROUTER_API_KEY}" ] && [ -z "$${ELM_API_KEY}" ] && [ -z "$${ANTHROPIC_API_KEY}" ]; then \
+		echo "⚠️  No API keys set. Set the key for your provider (OPENAI, GEMINI, OPENROUTER, ELM or ANTHROPIC _API_KEY)"; \
+	fi
+	@if [ -z "$${LLM_PROVIDER}" ]; then \
+		echo "⚠️  LLM_PROVIDER is not set (e.g. make LLM_PROVIDER=openai MODEL=gpt-4o ...)"; \
 	fi
 	@echo "============================================================"
 

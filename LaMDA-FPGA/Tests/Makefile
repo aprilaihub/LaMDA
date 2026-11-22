@@ -17,11 +17,16 @@ VERBOSE ?= 0
 .PHONY: run_test help
 
 # Run test pipeline with default parameters
-# Usage: make run_test
-# Usage: make MODEL=gemini-2.5-pro run_test
+# Usage: make LLM_PROVIDER=openai run_test
+# Usage: make LLM_PROVIDER=gemini MODEL=gemini-2.5-pro run_test
 run_test:
+	@if [ -z "$(LLM_PROVIDER)" ]; then \
+		echo "Error: LLM_PROVIDER is required (openai, gemini, anthropic, openrouter, elm). Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_test"; \
+		exit 1; \
+	fi
 	@echo "============================================================"
 	@echo "Running test pipeline"
+	@echo "Provider: $(LLM_PROVIDER)"
 	@echo "Model: $(MODEL)"
 	@echo "============================================================"
 	@( \
@@ -43,11 +48,12 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  run_test         - Run the test pipeline"
-	@echo "                     Usage: make MODEL=gpt-4o run_test"
+	@echo "                     Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_test"
 	@echo ""
 	@echo "  help             - Display this help message"
 	@echo ""
 	@echo "Parameters:"
+	@echo "  LLM_PROVIDER - openai|gemini|anthropic|openrouter|elm (required)"
 	@echo "  MODEL        - LLM model (default: gpt-4o)"
 	@echo "  MAX_TOKENS   - Maximum tokens (default: 3000)"
 	@echo "  TEMPERATURE  - Sampling temperature (default: 1.0)"
@@ -56,8 +62,8 @@ help:
 	@echo "  VERBOSE      - Verbose mode for runner (0/1, default: 0)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make run_test"
-	@echo "  make MODEL=gemini-2.5-pro run_test"
-	@echo "  make VERBOSE=1 run_test"
-	@echo "  make MODEL=gpt-4o MAX_TOKENS=4000 TEMPERATURE=0.7 TOP_P=0.95 run_test"
+	@echo "  make LLM_PROVIDER=openai run_test"
+	@echo "  make LLM_PROVIDER=gemini MODEL=gemini-2.5-pro run_test"
+	@echo "  make LLM_PROVIDER=openai VERBOSE=1 run_test"
+	@echo "  make LLM_PROVIDER=openai MODEL=gpt-4o MAX_TOKENS=4000 TEMPERATURE=0.7 TOP_P=0.95 run_test"
 	@echo "============================================================"

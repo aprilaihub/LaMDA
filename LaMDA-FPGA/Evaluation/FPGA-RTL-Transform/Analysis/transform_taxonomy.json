@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "about": "Labels the LLM uses to name its RTL edits (Transformations section of the answer) and the Vivado evidence that Analysis/EditLog.py checks for each label. 'description' is shown to the LLM and only says what the label means, never when to use it. 'evidence' is a list of alternatives; an alternative is a list of conditions that must ALL hold between the REFERENCE and the attempt; the label is 'confirmed' when ANY alternative holds. A condition is {'metric': key, 'change': c} or {'primitive': [name prefixes], 'change': c}, with c in up | down | not_up | not_down. 'strength' is 'direct' when the evidence is the primitive the label is about, and 'indirect' when it is only a metric trend that other edits could also explain. An empty evidence list means the label cannot be checked from the reports ('unverifiable').",
+  "tags": {
+    "MEM_TO_BRAM": {
+      "description": "A memory or register array is described so that Vivado maps it to block RAM (RAMB18E1/RAMB36E1).",
+      "strength": "direct",
+      "evidence": [[{"primitive": ["RAMB18", "RAMB36"], "change": "up"}]]
+    },
+    "MEM_TO_LUTRAM": {
+      "description": "A memory or register array is described so that Vivado maps it to distributed (LUT) RAM.",
+      "strength": "direct",
+      "evidence": [[{"primitive": ["RAM32", "RAM64", "RAM128", "RAM256"], "change": "up"}]]
+    },
+    "SRL_INFERENCE": {
+      "description": "A chain of registers without reset or intermediate taps is described so that Vivado maps it to a shift-register LUT (SRL16E/SRLC32E).",
+      "strength": "direct",
+      "evidence": [[{"primitive": ["SRL"], "change": "up"}]]
+    },
+    "MULT_TO_DSP": {
+      "description": "A multiplication (or multiply-accumulate) is described so that Vivado maps it to a DSP48E1.",
+      "strength": "direct",
+      "evidence": [[{"primitive": ["DSP48E1"], "change": "up"}]]
+    },
+    "MULT_TO_LOGIC": {
+      "description": "A multiplication is kept out of the DSP48E1 blocks and built from LUTs and carry chains.",
+      "strength": "direct",
+      "evidence": [[{"primitive": ["DSP48E1"], "change": "down"}]]
+    },
+    "DSP_ABSORB_PIPE_REGS": {
+      "description": "Registers around a multiplication (input, multiplier or output registers) are described so that they are absorbed into the DSP48E1 (A/B, M, P registers) instead of fabric flip-flops.",
+      "strength": "indirect",
+      "evidence": [[{"metric": "FF_TOTAL", "change": "down"}, {"primitive": ["DSP48E1"], "change": "not_down"}]]
+    },
+    "DSP_USE_PREADDER": {
+      "description": "An addition before a multiplication is described so that it uses the pre-adder of the DSP48E1.",
+      "strength": "indirect",
+      "evidence": [[{"metric": "LUT_USED", "change": "down"}, {"primitive": ["DSP48E1"], "change": "not_down"}]]
+    },
+    "DSP_CASCADE": {
+      "description": "A sum of products is described so that partial sums travel over the dedicated cascade path between DSP48E1 blocks (PCIN/PCOUT).",
+      "strength": "indirect",
+      "evidence": [[{"metric": "LUT_USED", "change": "down"}, {"primitive": ["DSP48E1"], "change": "not_down"}]]
+    },
+    "FANOUT_REPLICATION": {
+      "description": "A register with a large fan-out is duplicated so that each copy drives fewer loads.",
+      "strength": "indirect",
+      "evidence": [[{"metric": "FF_TOTAL", "change": "up"}, {"metric": "wns_ns", "change": "up"}]]
+    },
+    "LOGIC_RETIME": {
+      "description": "Combinational logic is moved from one side of a register to the other to balance the logic depth between registers, without changing the register-crossing count at the outputs.",
+      "strength": "indirect",
+      "evidence": [[{"metric": "wns_ns", "change": "up"}]]
+    },
+    "LOGIC_SIMPLIFICATION": {
+      "description": "An expression, comparator, mux or controller is rewritten with less logic (shared terms, narrower widths, simpler encoding).",
+      "strength": "indirect",
+      "evidence": [[{"metric": "LUT_USED", "change": "down"}]]
+    },
+    "RESOURCE_SHARING": {
+      "description": "One arithmetic unit or memory port is used for several operations (time multiplexing) instead of one unit per operation.",
+      "strength": "indirect",
+      "evidence": [[{"primitive": ["DSP48E1"], "change": "down"}], [{"metric": "LUT_USED", "change": "down"}]]
+    },
+    "CONTROL_SET_REDUCTION": {
+      "description": "Resets, enables or clocks of registers are unified so that fewer distinct control sets exist.",
+      "strength": "indirect",
+      "evidence": []
+    },
+    "OTHER": {
+      "description": "Any edit that fits none of the labels above; describe it in 'rationale'.",
+      "strength": "indirect",
+      "evidence": []
+    }
+  }
+}

@@ -61,15 +61,20 @@ preprocess_dataset_noconstraints:
 	@echo "✅ No-constraints dataset preprocessing completed!"
 
 # Run LLM-EDA pipeline on ResBench dataset
-# Usage: make MODEL=gpt-4o run_llm_eda_resbench
-# Usage: make MODEL=gemini-2.0-flash-exp ID_START=1 ID_END=10 ITER=5 run_llm_eda_resbench
+# Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_llm_eda_resbench
+# Usage: make LLM_PROVIDER=gemini MODEL=gemini-2.0-flash-exp ID_START=1 ID_END=10 ITER=5 run_llm_eda_resbench
 run_llm_eda_resbench:
 	@if [ -z "$(MODEL)" ]; then \
-		echo "❌ Error: MODEL parameter is required. Usage: make MODEL=gpt-4o run_llm_eda_resbench"; \
+		echo "❌ Error: MODEL parameter is required. Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_llm_eda_resbench"; \
+		exit 1; \
+	fi
+	@if [ -z "$(LLM_PROVIDER)" ]; then \
+		echo "❌ Error: LLM_PROVIDER is required (openai, gemini, anthropic, openrouter, elm). Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_llm_eda_resbench"; \
 		exit 1; \
 	fi
 	@echo "============================================================"
 	@echo "Running ResBench Evaluation Pipeline"
+	@echo "Provider: $(LLM_PROVIDER)"
 	@echo "Model: $(MODEL)"
 	@echo "Design IDs: $(ID_START) to $(ID_END)"
 	@echo "Iterations per design: $(ITER)"
@@ -176,7 +181,7 @@ help:
 	@echo "                           Usage: make preprocess_dataset_noconstraints"
 	@echo ""
 	@echo "  run_llm_eda_resbench   - Run LLM-EDA pipeline on ResBench"
-	@echo "                           Usage: make MODEL=gpt-4o run_llm_eda_resbench"
+	@echo "                           Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_llm_eda_resbench"
 	@echo ""
 	@echo "  json_to_csv            - Convert JSON results to full CSV"
 	@echo "                           Usage: make JSON_FILE=exp_results.json json_to_csv"
@@ -196,6 +201,7 @@ help:
 	@echo "  help                   - Display this help message"
 	@echo ""
 	@echo "Parameters:"
+	@echo "  LLM_PROVIDER - openai|gemini|anthropic|openrouter|elm (required for run_llm_eda_resbench)"
 	@echo "  MODEL        - LLM model to use (required for run_llm_eda_resbench)"
 	@echo "  ID_START     - Starting design ID (default: 1)"
 	@echo "  ID_END       - Ending design ID (default: 56)"
@@ -211,9 +217,9 @@ help:
 	@echo "  make PREPROCESS_SEED=123 preprocess_dataset"
 	@echo "  make PREPROCESS_SEED=123 preprocess_dataset_noconstraints"
 	@echo "  make preprocess_dataset_noconstraints"
-	@echo "  make MODEL=gpt-4o run_llm_eda_resbench"
-	@echo "  make MODEL=gpt-4o DATASET_VARIANT=noconstraints run_llm_eda_resbench"
-	@echo "  make MODEL=gemini-2.0-flash-exp ID_START=1 ID_END=10 ITER=5 run_llm_eda_resbench"
+	@echo "  make LLM_PROVIDER=openai MODEL=gpt-4o run_llm_eda_resbench"
+	@echo "  make LLM_PROVIDER=openai MODEL=gpt-4o DATASET_VARIANT=noconstraints run_llm_eda_resbench"
+	@echo "  make LLM_PROVIDER=gemini MODEL=gemini-2.0-flash-exp ID_START=1 ID_END=10 ITER=5 run_llm_eda_resbench"
 	@echo "  make JSON_FILE=exp_gpt-4o_20260318.json generate_csv"
 	@echo "  make JSON_FILE=exp_gpt-4o_20260318.json reorganize_results"
 	@echo "============================================================"

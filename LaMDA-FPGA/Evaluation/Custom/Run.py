@@ -91,7 +91,7 @@ class TestingPipeline:
     
     def __init__(self, args):
         self.args = args
-        self.llm_client = LLMClient(args.model)
+        self.llm_client = LLMClient(args.model, args.provider)
         self.vivado = VivadoInterface()
         self.design_name = None
         self.total_tokens = 0
@@ -407,6 +407,8 @@ def parse_arguments():
     
     parser.add_argument("--model", type=str, default="gpt-4o",
                        help="LLM model name (e.g., gpt-4o, gemini-2.0-flash-exp)")
+    parser.add_argument("--provider", type=str, default=None,
+                       help="LLM provider (openai, openrouter, elm, gemini, anthropic). Defaults to $LLM_PROVIDER.")
     parser.add_argument("--max_tokens", type=int, default=3000,
                        help="Maximum tokens for LLM generation")
     parser.add_argument("--temperature", type=float, default=1.0,

@@ -22,11 +22,16 @@ FPGA_PART ?= xc7z020clg400-1
 
 run_custom:
 	@if [ -z "$(MODEL)" ]; then \
-		echo "❌ Error: MODEL parameter is required. Usage: make MODEL=gpt-4o run_custom"; \
+		echo "❌ Error: MODEL parameter is required. Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_custom"; \
+		exit 1; \
+	fi
+	@if [ -z "$(LLM_PROVIDER)" ]; then \
+		echo "❌ Error: LLM_PROVIDER is required (openai, gemini, anthropic, openrouter, elm). Usage: make LLM_PROVIDER=openai MODEL=gpt-4o run_custom"; \
 		exit 1; \
 	fi
 	@echo "============================================================"
 	@echo "Running LaMDA-FPGA Testing Pipeline"
+	@echo "Provider: $(LLM_PROVIDER)"
 	@echo "Model: $(MODEL)"
 	@echo "Max Tokens: $(MAX_TOKENS)"
 	@echo "Temperature: $(TEMPERATURE)"
@@ -100,7 +105,7 @@ help:
 	@echo ""
 	@echo "Available targets:"
 	@echo "  run_custom        - Run the custom pipeline with configurable parameters"
-	@echo "                      Usage: make MODEL=gpt-4o MAX_TOKENS=4000 TEMPERATURE=0.7 run_custom"
+	@echo "                      Usage: make LLM_PROVIDER=openai MODEL=gpt-4o MAX_TOKENS=4000 TEMPERATURE=0.7 run_custom"
 	@echo ""
 	@echo "  organize_outputs  - Move outputs into a design-specific subfolder"
 	@echo "                      Usage: make organize_outputs"
@@ -110,6 +115,7 @@ help:
 	@echo "  help              - Display this help message"
 	@echo ""
 	@echo "Parameters:"
+	@echo "  LLM_PROVIDER - openai|gemini|anthropic|openrouter|elm (required)"
 	@echo "  MODEL        - LLM model to use (required, e.g., gpt-4o, gemini-2.0-flash-exp)"
 	@echo "  MAX_TOKENS   - Maximum tokens for generation (default: 3000)"
 	@echo "  TEMPERATURE  - Temperature for sampling (default: 1.0)"
@@ -117,7 +123,7 @@ help:
 	@echo "  FPGA_PART    - FPGA part number (default: xc7z020clg400-1)"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make MODEL=gpt-4o run_custom"
-	@echo "  make MODEL=gemini-2.0-flash-exp run_custom MAX_TOKENS=4000"
+	@echo "  make LLM_PROVIDER=openai MODEL=gpt-4o run_custom"
+	@echo "  make LLM_PROVIDER=gemini MODEL=gemini-2.0-flash-exp run_custom MAX_TOKENS=4000"
 	@echo "  make organize_outputs"
 	@echo "============================================================"
